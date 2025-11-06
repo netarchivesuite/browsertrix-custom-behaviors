@@ -37,14 +37,19 @@ class NextPagePager {
 
   async* run(ctx) {
 
- 
-  //const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim();
-  //const total = Number(text.match(/\/\s*(\d+)\s*$/)[1]);  
-  //yield { msg: `Total pages ($${total})` };
-  for (let i = 1; i < 10; i++) {
-    document.querySelector('button[data-testid="button-next-page"]').click();
-    await sleep(2000); // wait 2s between clicks
-  }
+// Target the viewer iframe. Adjust selector if Issuu changes it.
+  const viewer = page.frameLocator('iframe[src*="issuu.com"], iframe[title*="Issuu"], iframe[title*="viewer"]').first();
+
+  // Wait until the page counter appears inside the frame
+  await viewer.locator('[data-testid="page-numbers"]').waitFor({ state: 'visible' });
+
+  // Click Next N times
+  const next = viewer.locator('[data-testid="button-next-page"]');
+  for (let i = 0; i < 9; i++) {
+    await next.click();
+    await page.waitForTimeout(500); // or wait for the counter to change
+  } 
+
 
   }
 }
