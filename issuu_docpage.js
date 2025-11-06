@@ -14,7 +14,7 @@ class QueueIssuuIframe {
 
   static init() { return {}; }
   // optional: run inside iframes (kept false; cross-origin DOM is blocked)
-  static runInIframes = false;
+  static runInIframes = true;
 
   // optional: wait for DOM and target element
   async awaitPageLoad() {
