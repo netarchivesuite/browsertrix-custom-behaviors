@@ -12,6 +12,7 @@ class SmoothScrollBehavior {
     // Wait until the body element is present
     await window.Lib.waitUntilNode("body");
   }
+  static init() { return {}; }
 
   // Required: The main behavior async iterator
   async *run(msg) {
