@@ -6,7 +6,9 @@ class SmoothScrollBehavior {
   static isMatch() {
     return window.location.href === "https://smedebol.dk/kb/dynamictest.html";
   }
-
+  
+  static init() { return {}; }
+  
   // Optional: If defined, provides a custom way to determine when a page has finished loading.
   async awaitPageLoad() {
     // Wait until the body element is present
