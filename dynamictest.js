@@ -26,8 +26,12 @@ class ScrollAndClickBehavior {
     let maxScroll = 10;
     let scrolls = 0;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    
+
+                await sleep(2000);
+                document.querySelector('#activate-carousel')?.click();
+            await sleep(1000);
     while (true) {
+      
               try {
             document.querySelector('#activate-carousel')?.click();
             await sleep(1000);
