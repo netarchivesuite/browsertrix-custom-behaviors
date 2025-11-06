@@ -40,6 +40,7 @@ class ScrollAndClickBehavior {
       
       for (const elem of elements) {
           try {
+            document.querySelector('#enhance-acc')?.click();
             elem.click();
             yield { msg: "Clicked on a new element" };
             await sleep(1000);
