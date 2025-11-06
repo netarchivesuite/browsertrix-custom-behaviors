@@ -7,9 +7,9 @@ class NextPagePager {
   // To target a specific site, replace with:
   //   return window.location.href === "https://example.com/path";
   // Or a regex, e.g.:
-  //   return /https:\/\/example\.com\/.+/i.test(window.location.href);
+  //   return /https:\/\/example\.com\/.+/i.test(window.location.href); 
   static isMatch() {
-    return true;
+    return /https:\/\/issuu\.com\/.*&d=[^&]+&u=[^&]+/i.test(window.location.href);
   }
 
   static init() { return {}; }
