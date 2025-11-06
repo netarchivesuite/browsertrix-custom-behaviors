@@ -38,6 +38,7 @@ class QueueIssuuIframe {
     await Promise.allSettled(Array.from(urls, url => ctx.Lib.addLink(url)));
   }
  async* run(ctx) {
+       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       await this.extractBrowserLinks(ctx);
       yield { msg: "queued viewer" };
       await sleep(2000);               // give the crawler a moment
