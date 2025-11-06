@@ -6,7 +6,7 @@ class ScrollAndClickBehavior {
   // required: a function that checks if a behavior should be run
   // for a given page.
   static isMatch() {
-    return window.location.href === "https://my-site.example.com/";
+    return true;
   }
   
   static init() { return {}; }
