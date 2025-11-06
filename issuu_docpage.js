@@ -9,7 +9,7 @@ class QueueIssuuIframe {
   // Or a regex, e.g.:
   //   return /https:\/\/example\.com\/.+/i.test(window.location.href); 
   static isMatch() {
-    return /https:\/\/issuu\.com\/[^\/]+\/docs\/.*/.test(location.href);
+    return true; ///https:\/\/issuu\.com\/[^\/]+\/docs\/.*/.test(location.href);
   }
 
   static init() { return {}; }
