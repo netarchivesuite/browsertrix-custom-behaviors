@@ -8,12 +8,6 @@ class SmoothScrollBehavior {
   }
   
   static init() { return {}; }
-  
-  // Optional: If defined, provides a custom way to determine when a page has finished loading.
-  async awaitPageLoad() {
-    // Wait until the body element is present
-    await ctx.Lib.waitUntilNode("body");
-  }
 
   // Required: The main behavior async iterator
   async *run(ctx) {
