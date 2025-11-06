@@ -38,7 +38,7 @@ class NextPagePager {
   async* run(ctx) {
     
   const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim();
-  const total = Number(el.textContent.match(/\/\s*(\d+)\s*$/)[1]);  
+  const total = Number(text.match(/\/\s*(\d+)\s*$/)[1]);  
   yield { msg: `Total pages ($${total})` };
   for (let i = 1; i < total; i++) {
     document.querySelector('button[data-testid="button-next-page"]').click();
