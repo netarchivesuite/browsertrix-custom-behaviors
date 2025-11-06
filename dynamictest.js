@@ -23,6 +23,7 @@ class ScrollAndClickBehavior {
     const scrollAmount = viewportHeight * 0.75; // Scroll by 75% of viewport height
     let maxScroll = 10;
     let scrolls = 0;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     
     while (true) {
       // Scroll down
@@ -31,7 +32,7 @@ class ScrollAndClickBehavior {
       yield { msg: "Scrolled down" };
 
       // Wait for a moment to allow new elements to load
-      await ctx.Lib.sleep(500);
+      await sleep(1000);
 
       // Find all button elements using document.querySelectorAll
       const elements = Array.from(document.querySelectorAll("button#activate-carousel"));
@@ -41,6 +42,7 @@ class ScrollAndClickBehavior {
           try {
             elem.click();
             yield { msg: "Clicked on a new element" };
+            await sleep(1000);
           } catch (error) {
             ctx.log({ level: "error", msg: "Error clicking element", error: error.message });
           }
