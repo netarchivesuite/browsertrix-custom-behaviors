@@ -33,10 +33,12 @@ class QueueIssuuIframe {
       // swallow
     }
   }
-
+  async extractBrowserLinks(ctx) {
+    const urls = new Set([document.querySelector('#DocPageReaderIframe')?.src].filter(Boolean));
+    await Promise.allSettled(Array.from(urls, url => ctx.Lib.addLink(url)));
+  }
  async* run(ctx) {
-    
-      ctx.Lib.addLink(addLink(document.querySelector('iframe[src*="issuu.com"]').src));            // crawl the viewer as a top-level page
+      await this.extractBrowserLinks(ctx);
       yield { msg: "queued viewer" };
       await sleep(200);               // give the crawler a moment
     
