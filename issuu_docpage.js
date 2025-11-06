@@ -18,7 +18,8 @@ class QueueIssuuIframe {
 
  async* run(ctx) {
     await new Promise(r => setTimeout(r, 1000));
-   ctx.log({ msg: "iframe src", document.querySelector('#DocPageReaderIframe')?.src });
+   let url = document.querySelector('#DocPageReaderIframe')?.src;
+   ctx.log({ msg: "iframe src", url });
     await ctx.Lib.addLink("https://issuu.com/rd4?p=1&d=metalmagasinet_2025_nr._3&u=danskmetalweb");
   }
 }
