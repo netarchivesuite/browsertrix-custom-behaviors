@@ -38,6 +38,8 @@ class ScrollAndClickBehavior {
       const newElements = elements.filter(elem => !previousElements.has(elem));
 
       for (const elem of newElements) {
+        ctx.log({level: "info", msg: elem.getAttribute('id') + "\n" + ctx.Lib.isInViewport(elem) +
+              !elem.disabled + elem.getAttribute('aria-disabled')});
         if (ctx.Lib.isInViewport(elem) && !elem.disabled && elem.getAttribute('aria-disabled') !== 'true') {
           try {
             elem.click();
