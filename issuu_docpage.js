@@ -26,9 +26,7 @@ class QueueIssuuIframe {
       while (document.readyState !== "complete" && Date.now() - start < maxWaitMs) {
         await sleep(100);
       }
-      while (!document.querySelector('[data-testid="page-numbers"]') && Date.now() - start < maxWaitMs) {
-        await sleep(200);
-      }
+      
     } catch (_) {
       // swallow
     }
