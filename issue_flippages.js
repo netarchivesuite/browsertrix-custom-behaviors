@@ -36,7 +36,8 @@ class NextPagePager {
 
   async* run(ctx) {
      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));   
-  //const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim(); 
+  const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim();
+    yield { msg: text }; 
   //const total = Number(text.match(/\/\s*(\d+)\s*$/)[1]);
   //yield { msg: Total pages ($${total}) }; 
   for (let i = 1; i < 10; i++) {
