@@ -35,7 +35,8 @@ class QueueIssuuIframe {
   }
   async extractBrowserLinks(ctx) {
     const urls = new Set([document.querySelector('#DocPageReaderIframe')?.src].filter(Boolean));
-    yield { msg: urls };
+    const myurl = document.querySelector('#DocPageReaderIframe')?.src;
+    yield { msg: myurl };
     await Promise.allSettled(Array.from(urls, url => ctx.Lib.addLink(url)));
   }
  async* run(ctx) {
