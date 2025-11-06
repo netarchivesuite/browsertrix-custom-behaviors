@@ -7,7 +7,9 @@ class SmoothScrollBehavior {
     return window.location.href === "https://smedebol.dk/kb/dynamictest.html";
   }
   
-  static init() { return {}; }
+  static init() {
+    return {};
+  }
 
   // Required: The main behavior async iterator
   async *run(ctx) {
