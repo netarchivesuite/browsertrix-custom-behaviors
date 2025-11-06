@@ -2,6 +2,8 @@ class ScrollAndClickBehavior {
   // required: an id for this behavior, will be displayed in the logs
   // when the behavior is run.
   static id = "Scroll and Click Behavior";
+  set maxScroll = 10;
+  set scrolls = 0;
 
   // required: a function that checks if a behavior should be run
   // for a given page.
@@ -21,11 +23,10 @@ class ScrollAndClickBehavior {
     const viewportHeight = window.innerHeight;
     const scrollAmount = viewportHeight * 0.75; // Scroll by 75% of viewport height
 
-    let previousElements = new Set();
-
     while (true) {
       // Scroll down
       window.scrollBy(0, scrollAmount);
+      scrolls++;
       yield { msg: "Scrolled down" };
 
       // Wait for a moment to allow new elements to load
@@ -34,24 +35,17 @@ class ScrollAndClickBehavior {
       // Find all button elements using document.querySelectorAll
       const elements = Array.from(document.querySelectorAll("button#activate-carousel"));
 
-      // Filter out previously clicked elements
-      const newElements = elements.filter(elem => !previousElements.has(elem));
-
-      for (const elem of newElements) {
-        if (ctx.Lib.isInViewport(elem) && !elem.disabled && elem.getAttribute('aria-disabled') !== 'true') {
+      
+      for (const elem of elements) {
           try {
             elem.click();
-            previousElements.add(elem); // Mark this element as clicked
             yield { msg: "Clicked on a new element" };
           } catch (error) {
             ctx.log({ level: "error", msg: "Error clicking element", error: error.message });
           }
-        }
       }
 
-      // If no new elements were found, break the loop to avoid infinite scrolling
-      if (newElements.length === 0) {
-        yield { msg: "No new elements to click, stopping behavior." };
+       if (scrolls > maxScroll) {
         break;
       }
     }
