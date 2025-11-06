@@ -13,7 +13,6 @@ class NextPagePager {
   }
 
   static init() { return {}; }
-
   // optional: run inside iframes (kept false; cross-origin DOM is blocked)
   static runInIframes = false;
 
@@ -36,6 +35,7 @@ class NextPagePager {
   }
 
   async* run(ctx) {
+     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));   
   //const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim(); 
   //const total = Number(text.match(/\/\s*(\d+)\s*$/)[1]);
   //yield { msg: Total pages ($${total}) }; 
