@@ -35,10 +35,10 @@ class QueueIssuuIframe {
   }
 
  async* run(ctx) {
-    if (iframe?.src) {
-      addLink(document.querySelector('iframe[src*="issuu.com"]').src);            // crawl the viewer as a top-level page
+    
+      ctx.Lib.addLink(addLink(document.querySelector('iframe[src*="issuu.com"]').src));            // crawl the viewer as a top-level page
       yield { msg: "queued viewer" };
       await sleep(200);               // give the crawler a moment
-    }
+    
   }
 }
