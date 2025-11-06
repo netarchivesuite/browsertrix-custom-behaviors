@@ -1,19 +1,45 @@
-// Wait for the window to load completely
-window.addEventListener('load', function () {
-    // Function to scroll down the page
-    function scrollDown() {
-        // Scroll down by the height of the window
-        window.scrollBy(0, window.innerHeight);
+class SmoothScrollBehavior {
+  // Required: An ID for this behavior, will be displayed in the logs when the behavior is run.
+  static id = "Smooth Scroll Behavior";
 
-        // Check if we have reached the bottom of the page
-        if ((window.innerHeight + window.scrollY) < document.body.offsetHeight) {
-            // If not at the bottom, scroll down again after a short delay
-            setTimeout(scrollDown, 1000); // Adjust the delay as needed
-        } else {
-            console.log("Reached the bottom of the page.");
-        }
+  // Required: Function that checks if a behavior should be run for a given page.
+  static isMatch() {
+    return window.location.href === "https://smedebol.dk/kb/dynamictest.html";
+  }
+
+  // Optional: If defined, provides a custom way to determine when a page has finished loading.
+  async awaitPageLoad() {
+    // Wait until the body element is present
+    await ctx.Lib.waitUntilNode("body");
+  }
+
+  // Required: The main behavior async iterator
+  async *run(ctx) {
+    try {
+      const scrollStep = 100; // Number of pixels to scroll at a time
+      const sleepTime = 100; // Time to wait between scrolls in milliseconds
+      let scrollHeight = document.body.scrollHeight; // Total scrollable height
+      let currentScroll = 0;
+
+      while (currentScroll < scrollHeight) {
+        ctx.Lib.scrollToOffset(currentScroll);
+        currentScroll += scrollStep;
+
+        // Wait for a short duration to allow for smooth scrolling
+        await ctx.Lib.sleep(sleepTime);
+
+        // Update scroll height in case new content loads
+        scrollHeight = document.body.scrollHeight;
+        
+        // Yield the current state
+        yield ctx.getState(`Scrolled to ${currentScroll}px`);
+      }
+
+      // Final state when the bottom is reached
+      yield ctx.getState("Reached the bottom of the page");
+    } catch (error) {
+      ctx.log({ level: "error", msg: "An error occurred during scrolling", error: error.message });
+      return;
     }
-
-    // Start the scrolling function
-    scrollDown();
-});
+  }
+}
