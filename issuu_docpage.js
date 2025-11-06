@@ -34,7 +34,7 @@ class QueueIssuuIframe {
     }
   }
 
-  static async* run(ctx) {
+ async* run(ctx) {
     const { waitUntilNode, addLink, log, sleep } = ctx.Lib;
     const iframe = await waitUntilNode(() => document.querySelector('iframe[src*="issuu.com"]'), 15000);
     if (iframe?.src) {
