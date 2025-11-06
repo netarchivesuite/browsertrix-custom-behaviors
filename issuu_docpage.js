@@ -31,7 +31,6 @@ class QueueIssuuIframe {
 
     const url = new URL(raw, location.href).href;  // handle relative src
     addLink(url);                                   // enqueue viewer as top-level
-    log({ msg: 'queued viewer', url });
     yield { msg: 'queued viewer', url };
     await sleep(100);
   }
