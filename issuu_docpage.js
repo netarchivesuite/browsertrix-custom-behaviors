@@ -17,21 +17,7 @@ class QueueIssuuIframe {
   static runInIframes = true;
 
  async* run(ctx) {
-    const { waitUntilNode, addLink, log, sleep } = ctx.Lib;
-
-    const iframe = await waitUntilNode(() =>
-      document.querySelector('#DocPageReaderIframe')
-      || document.querySelector('iframe[src*="issuu.com"]')
-      || document.querySelector('iframe[id*="DocPage"]'),
-      15000
-    );
-
-    const raw = iframe?.getAttribute('src') || iframe?.dataset?.src;
-    if (!raw) { yield { msg: 'no iframe src' }; return; }
-
-    const url = new URL(raw, location.href).href;  // handle relative src
-    addLink(url);                                   // enqueue viewer as top-level
-    yield { msg: 'queued viewer', url };
-    await sleep(100);
+    await new Promise(r => setTimeout(r, 1000));
+    await ctx.Lib.addLink("https://issuu.com/rd4?p=1&d=metalmagasinet_2025_nr._3&u=danskmetalweb");
   }
 }
