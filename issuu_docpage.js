@@ -9,7 +9,7 @@ class QueueIssuuIframe {
   // Or a regex, e.g.:
   //   return /https:\/\/example\.com\/.+/i.test(window.location.href); 
   static isMatch() {
-    return /issuu\.com\/.+\/docs\//.test(location.href);
+    return true;//return /issuu\.com\/.+\/docs\//.test(location.href);
   }
 
   static init() { return {}; }
@@ -40,7 +40,7 @@ class QueueIssuuIframe {
  async* run(ctx) {
       await this.extractBrowserLinks(ctx);
       yield { msg: "queued viewer" };
-      await sleep(200);               // give the crawler a moment
+      await sleep(2000);               // give the crawler a moment
     
   }
 }
