@@ -16,7 +16,7 @@ class QueueIssuuIframe {
   // optional: run inside iframes (kept false; cross-origin DOM is blocked)
   static runInIframes = true;
 
- static async* run(ctx) {
+ async* run(ctx) {
     const { waitUntilNode, addLink, log, sleep } = ctx.Lib;
 
     const iframe = await waitUntilNode(() =>
