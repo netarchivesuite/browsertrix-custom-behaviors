@@ -6,7 +6,7 @@ class ScrollAndClickBehavior {
   // required: a function that checks if a behavior should be run
   // for a given page.
   static isMatch() {
-    return true;
+    return window.location.href === "https://my-site.example.com/";
   }
   
   static init() { return {}; }
@@ -26,7 +26,7 @@ class ScrollAndClickBehavior {
     while (true) {
       // Scroll down
       window.scrollBy(0, scrollAmount);
-      yield ctx.getState("Scrolled down");
+      yield { msg: "Scrolled down" };
 
       // Wait for a moment to allow new elements to load
       await ctx.Lib.sleep(500);
@@ -42,7 +42,7 @@ class ScrollAndClickBehavior {
           try {
             elem.click();
             previousElements.add(elem); // Mark this element as clicked
-            yield ctx.getState("Clicked on a new element");
+            yield { msg: "Clicked on a new element" };
           } catch (error) {
             ctx.log({ level: "error", msg: "Error clicking element", error: error.message });
           }
@@ -51,6 +51,7 @@ class ScrollAndClickBehavior {
 
       // If no new elements were found, break the loop to avoid infinite scrolling
       if (newElements.length === 0) {
+        yield { msg: "No new elements to click, stopping behavior." };
         break;
       }
     }
