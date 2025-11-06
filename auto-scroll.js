@@ -28,11 +28,11 @@ class SmoothScrollBehavior {
         scrollHeight = document.body.scrollHeight;
         
         // Yield the current state
-        yield ctx.getState(`Scrolled to ${currentScroll}px`);
+        yield { msg: `Scrolled to ${currentScroll}px` };
       }
 
       // Final state when the bottom is reached
-      yield ctx.getState("Reached the bottom of the page");
+      yield { msg: "Reached the bottom of the page" };
     } catch (error) {
       ctx.log({ level: "error", msg: "An error occurred during scrolling", error: error.message });
       return;
