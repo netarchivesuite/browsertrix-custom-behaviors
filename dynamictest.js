@@ -34,12 +34,9 @@ class ScrollAndClickBehavior {
       // Wait for a moment to allow new elements to load
       await sleep(1000);
 
-      // Find all button elements using document.querySelectorAll
-      const elements = Array.from(document.querySelectorAll("button#activate-carousel"));
 
-      
-      for (const elem of elements) {
           try {
+            document.querySelector('#activate-carousel')?.click();
             document.querySelector('#enhance-acc')?.click();
             elem.click();
             yield { msg: "Clicked on a new element" };
@@ -47,7 +44,7 @@ class ScrollAndClickBehavior {
           } catch (error) {
             ctx.log({ level: "error", msg: "Error clicking element", error: error.message });
           }
-      }
+      
 
        if (scrolls > maxScroll) {
         break;
