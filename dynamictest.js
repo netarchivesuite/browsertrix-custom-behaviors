@@ -27,7 +27,7 @@ class ScrollAndClickBehavior {
     
     while (true) {
       // Scroll down
-      window.scrollBy(0, scrollAmount);
+      window.scrollBy({ top: scrollAmount, left: 0, behavior: 'smooth' });
       scrolls++;
       yield { msg: "Scrolled down" };
 
