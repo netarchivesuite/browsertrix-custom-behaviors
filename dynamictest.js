@@ -6,7 +6,7 @@ class ScrollAndClickBehavior {
   // required: a function that checks if a behavior should be run
   // for a given page.
   static isMatch() {
-    return true;
+    return window.location.href === "https://my-site.example.com/";
   }
   
   static init() { return {}; }
@@ -31,8 +31,8 @@ class ScrollAndClickBehavior {
       // Wait for a moment to allow new elements to load
       await ctx.Lib.sleep(500);
 
-      // Find all button elements
-      const elements = Array.from(ctx.Lib.xpathNodes("//button[@id='activate-carousel']"));
+      // Find all button elements using document.querySelectorAll
+      const elements = Array.from(document.querySelectorAll("button#activate-carousel"));
 
       // Filter out previously clicked elements
       const newElements = elements.filter(elem => !previousElements.has(elem));
