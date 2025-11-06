@@ -26,16 +26,7 @@ class ScrollAndClickBehavior {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     
     while (true) {
-      // Scroll down
-      window.scrollBy({ top: scrollAmount, left: 0, behavior: 'smooth' });
-      scrolls++;
-      yield { msg: "Scrolled down" };
-
-      // Wait for a moment to allow new elements to load
-      await sleep(1000);
-
-
-          try {
+              try {
             document.querySelector('#activate-carousel')?.click();
             document.querySelector('#enhance-acc')?.click();
             elem.click();
@@ -44,7 +35,17 @@ class ScrollAndClickBehavior {
           } catch (error) {
             ctx.log({ level: "error", msg: "Error clicking element", error: error.message });
           }
-      
+            await sleep(1000);
+        // Scroll down
+      window.scrollBy({ top: scrollAmount, left: 0, behavior: 'smooth' });
+      scrolls++;
+      yield { msg: "Scrolled down" };
+
+      // Wait for a moment to allow new elements to load
+      await sleep(1000);
+
+
+
 
        if (scrolls > maxScroll) {
         break;
