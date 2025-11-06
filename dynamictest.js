@@ -2,8 +2,7 @@ class ScrollAndClickBehavior {
   // required: an id for this behavior, will be displayed in the logs
   // when the behavior is run.
   static id = "Scroll and Click Behavior";
-  set maxScroll = 10;
-  set scrolls = 0;
+
 
   // required: a function that checks if a behavior should be run
   // for a given page.
@@ -22,7 +21,9 @@ class ScrollAndClickBehavior {
   async* run(ctx) {
     const viewportHeight = window.innerHeight;
     const scrollAmount = viewportHeight * 0.75; // Scroll by 75% of viewport height
-
+    let maxScroll = 10;
+    let scrolls = 0;
+    
     while (true) {
       // Scroll down
       window.scrollBy(0, scrollAmount);
