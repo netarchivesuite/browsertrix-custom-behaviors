@@ -16,33 +16,23 @@ class QueueIssuuIframe {
   // optional: run inside iframes (kept false; cross-origin DOM is blocked)
   static runInIframes = true;
 
-  // optional: wait for DOM and target element
-  async awaitPageLoad() {
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const maxWaitMs = 15000;
-    const start = Date.now();
+ static async* run(ctx) {
+    const { waitUntilNode, addLink, log, sleep } = ctx.Lib;
 
-    try {
-      while (document.readyState !== "complete" && Date.now() - start < maxWaitMs) {
-        await sleep(100);
-      }
-      
-    } catch (_) {
-      // swallow
-    }
-  }
-  async extractBrowserLinks(ctx) {
-    ctx.Lib.addLink(document.querySelector('#DocPageReaderIframe')?.src);
-    //const urls = new Set([document.querySelector('#DocPageReaderIframe')?.src].filter(Boolean));
-    //const myurl = document.querySelector('#DocPageReaderIframe')?.src;
-    //yield { msg: myurl };
-    //await Promise.allSettled(Array.from(urls, url => ctx.Lib.addLink(document.querySelector('#DocPageReaderIframe')?.src)));
-  }
- async* run(ctx) {
-       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-      await this.extractBrowserLinks(ctx);
-      yield { msg: "queued viewer" };
-      await sleep(2000);               // give the crawler a moment
-    
+    const iframe = await waitUntilNode(() =>
+      document.querySelector('#DocPageReaderIframe')
+      || document.querySelector('iframe[src*="issuu.com"]')
+      || document.querySelector('iframe[id*="DocPage"]'),
+      15000
+    );
+
+    const raw = iframe?.getAttribute('src') || iframe?.dataset?.src;
+    if (!raw) { yield { msg: 'no iframe src' }; return; }
+
+    const url = new URL(raw, location.href).href;  // handle relative src
+    addLink(url);                                   // enqueue viewer as top-level
+    log({ msg: 'queued viewer', url });
+    yield { msg: 'queued viewer', url };
+    await sleep(100);
   }
 }
