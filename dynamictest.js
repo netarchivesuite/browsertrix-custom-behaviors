@@ -9,7 +9,9 @@ class ScrollAndClickBehavior {
   static isMatch() {
     return true;
   }
-  
+    async awaitPageLoad() {
+
+  }
   static init() { return {}; }
 
   // optional: if true, will also check isMatch() and possibly run
