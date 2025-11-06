@@ -4,39 +4,50 @@ class SmoothScrollBehavior {
 
   // Required: Function that checks if a behavior should be run for a given page.
   static isMatch() {
-    return true;
+    return window.location.href === "https://smedebol.dk/kb/dynamictest.html";
   }
-  
-  static init() {
-    return {};
+
+  // Optional: If defined, provides a custom way to determine when a page has finished loading.
+  async awaitPageLoad() {
+    // Wait until the body element is present
+    await window.Lib.waitUntilNode("body");
   }
 
   // Required: The main behavior async iterator
-  async *run(ctx) {
+  async *run(msg) {
     try {
       const scrollStep = 100; // Number of pixels to scroll at a time
       const sleepTime = 100; // Time to wait between scrolls in milliseconds
-      let scrollHeight = document.body.scrollHeight; // Total scrollable height
       let currentScroll = 0;
 
+      // Get the total scrollable height of the document
+      let scrollHeight = document.body.scrollHeight;
+
       while (currentScroll < scrollHeight) {
-        ctx.Lib.scrollToOffset(currentScroll);
+        // Scroll to the current offset
+        window.Lib.scrollToOffset(currentScroll);
+
+        // Increase the current scroll position
         currentScroll += scrollStep;
 
         // Wait for a short duration to allow for smooth scrolling
-        await ctx.Lib.sleep(sleepTime);
+        await window.Lib.sleep(sleepTime);
 
-        // Update scroll height in case new content loads
-        scrollHeight = document.body.scrollHeight;
-        
-        // Yield the current state
-        yield { msg: `Scrolled to ${currentScroll}px` };
+        // Log the current scroll position
+        yield msg.getState(`Scrolled to: ${currentScroll}px`);
+
+        // Update the scroll height in case new content loads
+        const newScrollHeight = document.body.scrollHeight;
+        if (newScrollHeight > scrollHeight) {
+          scrollHeight = newScrollHeight; // Update to the new scroll height
+        }
       }
 
       // Final state when the bottom is reached
-      yield { msg: "Reached the bottom of the page" };
+      yield msg.getState("Reached the bottom of the page");
     } catch (error) {
-      ctx.log({ level: "error", msg: "An error occurred during scrolling", error: error.message });
+      // Log any errors that occur during execution
+      msg.log({ level: "error", msg: "An error occurred during scrolling", error: error.message });
       return;
     }
   }
