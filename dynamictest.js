@@ -30,8 +30,9 @@ class ScrollAndClickBehavior {
     while (true) {
               try {
             document.querySelector('#activate-carousel')?.click();
+            await sleep(1000);
             document.querySelector('#enhance-acc')?.click();
-            elem.click();
+
             yield { msg: "Clicked on a new element" };
             await sleep(1000);
           } catch (error) {
