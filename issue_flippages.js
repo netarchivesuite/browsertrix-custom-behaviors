@@ -35,12 +35,12 @@ class NextPagePager {
   }
 
   async* run(ctx) {
-     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));   
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));   
   const text = document.querySelector('[data-testid="page-numbers"]')?.textContent.trim();
     yield { msg: text }; 
-  //const total = Number(text.match(/\/\s*(\d+)\s*$/)[1]);
-  //yield { msg: Total pages ($${total}) }; 
-  for (let i = 1; i < 10; i++) {
+  const total = Number(text.match(/\d+(?=\s*$)/)[0]);
+  yield { msg: `Total pages (${total})` };
+  for (let i = 1, half = Math.floor(total / 2); i <= half; i++) {
     document.querySelector('button[data-testid="button-next-page"]').click();
     await sleep(2000); // wait 2s between clicks } 
   }
