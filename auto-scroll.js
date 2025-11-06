@@ -4,7 +4,7 @@ class SmoothScrollBehavior {
 
   // Required: Function that checks if a behavior should be run for a given page.
   static isMatch() {
-    return window.location.href === "https://smedebol.dk/kb/dynamictest.html";
+    return true;
   }
   
   static init() {
