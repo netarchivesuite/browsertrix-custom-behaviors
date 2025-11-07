@@ -16,11 +16,11 @@ class QueueIssuuIframe {
 
     // wait for the iframe by XPath
     const iframe = await waitUntilNode("//iframe[@id='DocPageReaderIframe']");
-    ctx.log({ msg: "iframe src", iframe.getAttribute("src") });
+    ctx.log({ msg: "iframe src", iframe?.getAttribute("src") });
     //const url = iframe?.src || iframe?.getAttribute("src");
     //ctx.log({ msg: "iframe src", url });
 
-    let url = iframe.getAttribute("src");
+    let url = iframe?.getAttribute("src");
     ctx.log({ msg: "url", url });
 
     await addLink(url);
