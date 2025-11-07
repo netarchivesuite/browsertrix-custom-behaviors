@@ -12,17 +12,14 @@ class QueueIssuuIframe {
   static runInIframes = true;
 
   async* run(ctx) {
-    const { waitUntilNode, addLink } = ctx.Lib;
+   const { waitUntilNode, addLink } = ctx.Lib;
 
     // wait for the iframe by XPath
     const iframe = await waitUntilNode("//iframe[@id='DocPageReaderIframe']");
-    ctx.log({ msg: "iframe src", iframe?.getAttribute("src") });
-    //const url = iframe?.src || iframe?.getAttribute("src");
-    //ctx.log({ msg: "iframe src", url });
+    await new Promise(r => setTimeout(r, 2000));
+    const url = iframe?.src || iframe?.getAttribute("src");
+    ctx.log({ msg: "iframe src", url });
 
-    let url = iframe?.getAttribute("src");
-    ctx.log({ msg: "url", url });
-
-    await addLink(url);
+    if (url) await addLink(url);
   }
 }
