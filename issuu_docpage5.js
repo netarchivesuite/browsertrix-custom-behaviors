@@ -13,7 +13,7 @@ class QueueIssuuIframe {
 
   async* run(ctx) {
     const { waitUntilNode, addLink } = ctx.Lib;
-
+    await new Promise(r => setTimeout(r, 10000));
     // Wait until the iframe exists AND its src starts with the target prefix
     const iframe = await waitUntilNode(
       "//iframe[@id='DocPageReaderIframe' and starts-with(@src,'https://issuu.com/rd4')]"
