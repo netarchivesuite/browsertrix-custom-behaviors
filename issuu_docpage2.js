@@ -4,7 +4,7 @@ class QueueIssuuIframe {
 
   // required: decide when to run
   static isMatch() {
-    return true; ///https:\/\/issuu\.com\/[^\/]+\/docs\/.*/.test(location.href);
+    return /https:\/\/issuu\.com\/[^\/]+\/docs\/.*/.test(location.href);
   }
 
   static init() { return {}; }
