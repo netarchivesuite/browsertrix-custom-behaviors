@@ -1,0 +1,149 @@
+make a custom browsertrix behavior and use exactly this format:
+
+The main native format of custom behaviors is a Javascript class. 
+It should work with Brave/Playwright.
+No external libraries. Use try/catch.
+
+More info here: https://crawler.docs.browsertrix.com/user-guide/behaviors/#behavior-class especially on the important Utility Functions.
+
+Utility Functions¶
+In addition to getState(), Browsertrix Behaviors includes a small library of other utility functions which are available to behaviors under ctx.Lib.
+
+Some of these functions which may be of use to behaviors authors are:
+
+scrollAndClick: scroll element into view and click
+sleep: sleep for specified timeout (ms)
+waitUntil: wait until a certain predicate is true
+waitUntilNode: wait until a DOM node exists
+xpathNode: find a DOM node by xpath
+xpathNodes: find and iterate all DOM nodes by xpath
+xpathString: find a string attribute by xpath
+iterChildElem: iterate over all child elements of given element
+iterChildMatches: iterate over all child elements that match a specific xpath
+isInViewport: determine if a given element is in the visible viewport
+scrollToOffset: scroll to particular offset
+scrollIntoView: smoothly scroll particular element into view
+getState: increment a state counter and return all state counters + string message
+addLink: add a given URL to the crawl queue
+
+There should be a single class per file, and it should be of the following format:
+
+Behavior Class¶
+
+class MyBehavior
+{
+  // required: an id for this behavior, will be displayed in the logs
+  // when the behavior is run.
+  static id = "My Behavior Id";
+
+  // required: a function that checks if a behavior should be run
+  // for a given page.
+  // This function can check the DOM / window.location to determine
+  // what page it is on. The first behavior that returns 'true'
+  // for a given page is used on that page.
+  static isMatch() {
+    return window.location.href === "https://my-site.example.com/";
+  }
+  static init() { return {}; }
+  // optional: if true, will also check isMatch() and possibly run
+  // this behavior in each iframe.
+  // if false, or not defined, this behavior will be skipped for iframes.
+  static runInIframes = false;
+
+  // optional: if defined, provides a way to define a custom way to determine
+  // when a page has finished loading beyond the standard 'load' event.
+  //
+  // if defined, the crawler will await 'awaitPageLoad()' before moving on to
+  // post-crawl processing operations, including link extraction, screenshots,
+  // and running main behavior
+  async awaitPageLoad() {
+
+  }
+
+  // required: the main behavior async iterator, which should yield for
+  // each 'step' in the behavior.
+  // When the iterator finishes, the behavior is done.
+  // (See below for more info)
+  async* run(ctx) {
+    //... yield ctx.getState("starting behavior");
+
+    // do something
+
+    //... yield ctx.getState("a step has been performed");
+  }
+}
+Behavior run() loop¶
+The run() loop provides the main loop for the behavior to run. It must be an async iterator, which means that it can optionally call yield to return state to the crawler and allow it to print the state.
+
+For example, a behavior that iterates over elements and then clicks them either once or twice (based on the value of a custom .clickTwice property) could be written as follows:
+
+
+  async* run(ctx) {
+    let click = 0;
+    let dblClick = 0;
+    for await (const elem of document.querySelectorAll(".my-selector")) {
+      if (elem.clickTwice) {
+        elem.click();
+        elem.click();
+        dblClick++;
+      } else {
+        elem.click();
+        click++;
+      }
+      ctx.log({msg: "Clicked on elem", click, dblClick});
+    }
+  }
+This behavior will run to completion and log every time a click event is made. However, this behavior can not be paused and resumed (supported in ArchiveWeb.page) and generally can not be interrupted.
+
+One approach is to yield after every major 'step' in the behavior, for example:
+
+
+  async* run(ctx) {
+    let click = 0;
+    let dblClick = 0;
+    for await (const elem of document.querySelectorAll(".my-selector")) {
+      if (elem.clickTwice) {
+        elem.click();
+        elem.click();
+        dblClick++;
+        // allows behavior to be paused here
+        yield {msg: "Double-clicked on elem", click, dblClick};
+      } else {
+        elem.click();
+        click++;
+        // allows behavior to be paused here
+        yield {msg: "Single-clicked on elem", click, dblClick};
+      }
+    }
+  }
+The data that is yielded will be logged in the behaviorScriptCustom context.
+
+This allows for the behavior to log the current state of the behavior and allow for it to be gracefully interrupted after each logical 'step'.
+
+
+
+Robustness requirements
+- Normalize all text comparisons (lowercase, trim, collapse whitespace).
+- Only act on elements that are in the viewport and not `disabled` or `aria-disabled="true"`.
+- Use `element.click()` inside try/catch; continue on errors.
+- Support Shadow DOM by querying `document` plus any open shadow roots you can traverse.
+- Skip cross-origin iframe DOM access unless `runInIframes` is true and same-origin.
+- Never throw uncaught errors. Always `ctx.log({ level:"error", ... })` then return.
+- Use document.querySelectorAll instead of ctx.Lib.xpathNodes
+- use yield { msg: "" }; instead of yield ctx.getState("");
+Set static isMatch() {
+    return true;
+  }
+But also add comments on how you could use a static url or a regex for isMatch.
+
+
+The behavior should do exactly this:
+Scroll by 75% of viewpoint height.
+For each scroll detect all elements of these types:
+    const selectors = [
+      `button:has(svg[icon-name="caret-down-outline"] > path[d="M10 13.7a.897.897 0 01-.636-.264l-4.6-4.6a.9.9 0 111.272-1.273L10 11.526l3.964-3.963a.9.9 0 011.272 1.273l-4.6 4.6A.897.897 0 0110 13.7z"])`,
+      `button:has(svg > path[d="M10 1a9 9 0 100 18 9 9 0 000-18zm0 16.2a7.2 7.2 0 117.2-7.2 7.208 7.208 0 01-7.2 7.2zm.9-8.1H14v1.8h-3.1V14H9.1v-3.1H6V9.1h3.1V6h1.8v3.1z"])`,
+      `button[name="comments-action-button"][data-post-click-location="comments-button"]`,
+    ];
+Click in sequence on any new unclicked elements found.
+Repeat
