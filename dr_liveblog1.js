@@ -4,7 +4,7 @@ class QueueLiveBlogIframe {
 
   // required: decide when to run
   static isMatch() {
-    return /https:\/\/www\.dr\.dk.*liveblog.*/.test(window.location.href);
+    return /https:\/\/www\.dr\.dk.*live.*/.test(window.location.href);
   }
 
   static init() { return {}; }
