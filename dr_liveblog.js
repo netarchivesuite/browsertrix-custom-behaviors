@@ -1,3 +1,5 @@
+//IMPORTANT: this custom behavior needs scrollmore.js to be added as custom behavior also. This behavior should be placed first in the sequence.
+
 class QueueLiveBlogIframe {
   // required: id displayed in logs
   static id = "Queue LiveBlog Iframe";
