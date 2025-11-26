@@ -34,7 +34,7 @@ class SharePointDownloadBehavior {
         checkboxes = allCheckboxes;
       }
 
-      for (let i = 1; i < checkboxes.length; i++) { // skip first
+      for (let i = 0; i < checkboxes.length; i++) { // skip first
         const cb = checkboxes[i];
 
         // Track original state so we only unselect if we selected it
