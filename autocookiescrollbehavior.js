@@ -5,11 +5,13 @@ class AutoCookieScrollBehavior {
     return true;
   }
 
-  static init() {}
+  static init() { return {}; }
+
+  // Required: The main behavior async iterator
 
   static runInIframes = false;
 
-  static async *run(ctx) {
+  async *run(msg) {
     const maxScreens = 15;
     let screensScrolled = 0;
 
