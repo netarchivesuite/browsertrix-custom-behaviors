@@ -604,7 +604,7 @@ class AutoCookieScrollBehavior {
    * })();
    */
   async autoScrollPage(ctx) {
-    const maxScreens = 25;
+    const maxScreens = 15;
     let screensScrolled = 0;
 
     async function sleepMs(ms) {
