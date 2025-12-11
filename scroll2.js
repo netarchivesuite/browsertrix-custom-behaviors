@@ -1,4 +1,4 @@
-class SmoothScrollBehavior {
+class scroll2 {
   // Required: An ID for this behavior, will be displayed in the logs when the behavior is run.
   static id = "Smooth Scroll Behavior";
 
@@ -9,47 +9,37 @@ class SmoothScrollBehavior {
 
   // Optional: If defined, provides a custom way to determine when a page has finished loading.
   async awaitPageLoad() {
-    // Wait until the body element is present
-    await window.Lib.waitUntilNode("body");
+
   }
   static init() { return {}; }
 
   // Required: The main behavior async iterator
   async *run(msg) {
-    try {
-      const scrollStep = 100; // Number of pixels to scroll at a time
-      const sleepTime = 100; // Time to wait between scrolls in milliseconds
-      let currentScroll = 0;
+    const maxScreens = 15;
+    let screensScrolled = 0;
 
-      // Get the total scrollable height of the document
-      let scrollHeight = document.body.scrollHeight;
+    function sleep(ms) {
+      return new Promise(res => setTimeout(res, ms));
+    }
 
-      while (currentScroll < scrollHeight) {
-        // Scroll to the current offset
-        window.Lib.scrollToOffset(currentScroll);
+    while (screensScrolled < maxScreens) {
+      const before = window.scrollY;
+      const viewportHeight = window.innerHeight;
 
-        // Increase the current scroll position
-        currentScroll += scrollStep;
+      window.scrollBy({ top: viewportHeight, behavior: "smooth" });
 
-        // Wait for a short duration to allow for smooth scrolling
-        await window.Lib.sleep(sleepTime);
+      await sleep(750);
 
-        // Log the current scroll position
-        yield msg.getState(`Scrolled to: ${currentScroll}px`);
+      const after = window.scrollY;
 
-        // Update the scroll height in case new content loads
-        const newScrollHeight = document.body.scrollHeight;
-        if (newScrollHeight > scrollHeight) {
-          scrollHeight = newScrollHeight; // Update to the new scroll height
-        }
+      if (after === before) {
+        console.log("Reached page end.");
+        break;
       }
 
-      // Final state when the bottom is reached
-      yield msg.getState("Reached the bottom of the page");
-    } catch (error) {
-      // Log any errors that occur during execution
-      msg.log({ level: "error", msg: "An error occurred during scrolling", error: error.message });
-      return;
+      screensScrolled++;
     }
+
+    yield { msg: "Scroll2-behavior: scrolling finished" };
   }
 }
