@@ -7,7 +7,8 @@ class ScrollAndClick {
     "button.lc-load-more",
     "span[role=treeitem]",
     "button#load-more-posts",
-    "#pagenation"
+    "#pagenation",
+    "button.CybotCookiebotDialogBodyButton"
   ];
   triggerwords = [
     "se mere",
