@@ -9,7 +9,7 @@ class AutoCookieScrollBehavior {
     return {};
   }
 
-  static runInIframes = true;
+  static runInIframes = false;
 
   async *run(msg) {
     // ---- Cookie/consent auto-click (integrated) ----
@@ -53,6 +53,10 @@ class AutoCookieScrollBehavior {
         else el.click?.();
 
         window.__consentClickDone = true;
+
+        // Signal the generator to yield an empty msg as soon as it can.
+        window.__consentClickYieldPending = true;
+
         console.log("[consent-click] Clicked:", el, "| reason:", reason);
         return true;
       } catch (e) {
@@ -111,8 +115,16 @@ class AutoCookieScrollBehavior {
       setTimeout(() => obs.disconnect(), MAX_SCAN_MS);
     };
 
+    const flushClickYield = async function* () {
+      if (window.__consentClickYieldPending) {
+        window.__consentClickYieldPending = false;
+        yield { msg: "" };
+      }
+    };
+
     // Run once at start
     runConsentAutoclickWindow();
+    yield* flushClickYield();
 
     // ---- Scroll behavior ----
     const maxScreens = 15;
@@ -130,6 +142,7 @@ class AutoCookieScrollBehavior {
 
       // Run again during scrolling (some banners appear after scroll)
       runConsentAutoclickWindow();
+      yield* flushClickYield();
 
       const after = window.scrollY;
 
@@ -140,6 +153,9 @@ class AutoCookieScrollBehavior {
 
       screensScrolled++;
     }
+
+    // Flush in case a click happened right at the end
+    yield* flushClickYield();
 
     yield { msg: "AutoCookieScrollBehavior: scrolling finished" };
   }
