@@ -9,7 +9,7 @@ class AutoCookieScrollBehavior {
     return {};
   }
 
-  static runInIframes = false;
+  static runInIframes = true;
 
   async *run(msg) {
     // ---- Cookie/consent auto-click (integrated) ----
