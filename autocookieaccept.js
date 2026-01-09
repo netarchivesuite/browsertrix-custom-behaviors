@@ -9,83 +9,134 @@ class AutoCookieScrollBehavior {
     return {};
   }
 
-  static runInIframes = true;
+  static runInIframes = false;
 
   async *run(msg) {
     const maxScreens = 15;
     let screensScrolled = 0;
 
-    const cookieButtonSelectors = [
-      "button.fc-cta-consent",
-      'button[aria-label*="accept" i]',
-    ];
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
-    function sleep(ms) {
-      return new Promise((res) => setTimeout(res, ms));
-    }
+    // ---- Cookie accept (hover + click) helpers ----
+    const TERMS = ["accept", "tillad"];
 
-    function isElementVisible(el) {
-      if (!el || !(el instanceof Element)) return false;
+    const norm = (s) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
-      const style = window.getComputedStyle(el);
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.opacity === "0"
+    const isVisible = (el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return false;
+      const st = getComputedStyle(el);
+      return (
+        st.display !== "none" &&
+        st.visibility !== "hidden" &&
+        st.pointerEvents !== "none"
+      );
+    };
+
+    const getCenter = (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    };
+
+    const dispatchMouse = (el, type, { x, y }) => {
+      el.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+        })
+      );
+    };
+
+    const dispatchPointer = (el, type, { x, y }) => {
+      if (typeof PointerEvent === "function") {
+        el.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            pointerType: "mouse",
+            isPrimary: true,
+            clientX: x,
+            clientY: y,
+          })
+        );
+      }
+    };
+
+    const hoverThenClick = (el, delayMs = 150) => {
+      el.scrollIntoView({ block: "center", inline: "center" });
+      const pos = getCenter(el);
+
+      // Hover sequence (simulated events; cannot move OS cursor)
+      dispatchPointer(el, "pointerover", pos);
+      dispatchPointer(el, "pointerenter", pos);
+      dispatchPointer(el, "pointermove", pos);
+      dispatchMouse(el, "mouseover", pos);
+      dispatchMouse(el, "mouseenter", pos);
+      dispatchMouse(el, "mousemove", pos);
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          dispatchPointer(el, "pointerdown", pos);
+          dispatchMouse(el, "mousedown", pos);
+
+          dispatchPointer(el, "pointerup", pos);
+          dispatchMouse(el, "mouseup", pos);
+
+          dispatchMouse(el, "click", pos);
+          el.click(); // fallback
+
+          resolve();
+        }, delayMs);
+      });
+    };
+
+    const acceptCookiesOnce = async () => {
+      const matches = Array.from(
+        document.querySelectorAll('button, [role="button"]')
       )
-        return false;
+        .filter(isVisible)
+        .filter((el) => {
+          const text = norm(el.innerText || el.textContent);
+          return TERMS.some((t) => text.includes(t));
+        });
 
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return false;
+      if (!matches.length) return 0;
 
-      // "First seen" = intersects the viewport
-      const inViewport =
-        rect.bottom > 0 &&
-        rect.right > 0 &&
-        rect.top < window.innerHeight &&
-        rect.left < window.innerWidth;
+      // De-duplicate (sometimes the same element appears via different selectors)
+      const unique = Array.from(new Set(matches));
 
-      return inViewport;
-    }
-
-    const clicked = new WeakSet();
-
-    async function clickCookieButtonsIfSeen() {
-      for (const sel of cookieButtonSelectors) {
-        const els = document.querySelectorAll(sel);
-        for (const el of els) {
-          if (clicked.has(el)) continue;
-          if (!isElementVisible(el)) continue;
-
-          try {
-            el.click();
-            clicked.add(el);
-            console.log("Clicked cookie button:", sel, el);
-            await sleep(300); // allow UI to update after consent click
-          } catch (e) {
-            // If click fails, don't mark as clicked so it can retry later
-            console.warn("Cookie button click failed:", sel, e);
-          }
+      for (const el of unique) {
+        try {
+          await hoverThenClick(el, 150);
+          await sleep(200);
+        } catch (_) {
+          // ignore and continue
         }
       }
-    }
+      return unique.length;
+    };
 
-    // Attempt immediately (in case banner is already visible)
-    await clickCookieButtonsIfSeen();
+    // Try immediately on load (common cookie banner timing)
+    await acceptCookiesOnce();
+    await sleep(250);
+    await acceptCookiesOnce();
 
+    // ---- Scroll loop ----
     while (screensScrolled < maxScreens) {
-      // Attempt before each scroll (banner could appear while idle)
-      await clickCookieButtonsIfSeen();
+      // Try before each scroll (banner may appear late)
+      await acceptCookiesOnce();
 
       const before = window.scrollY;
       const viewportHeight = window.innerHeight;
 
       window.scrollBy({ top: viewportHeight, behavior: "smooth" });
-
       await sleep(750);
 
-      // Attempt again after scroll (buttons may enter viewport)
-      await clickCookieButtonsIfSeen();
+      // Try after scroll as well (some banners trigger on scroll)
+      await acceptCookiesOnce();
 
       const after = window.scrollY;
 
