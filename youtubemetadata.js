@@ -31,28 +31,28 @@ class PlayEmbeddedYoutubeVideo {
     const replaySel = "button.endscreen-replay-button";
 
     // 1) Wait (max 20s) for overlay play button, then click once
-    const playBtn = await SoundCloudButtonClassSequencer._waitForSelector(playSel, { timeoutMs: 20000 });
+    const playBtn = await PlayEmbeddedYoutubeVideo._waitForSelector(playSel, { timeoutMs: 20000 });
     if (!playBtn) {
-      log("Timed out waiting for overlay play button", { selector: playSel, timeoutMs: 20000, at: SoundCloudButtonClassSequencer._nowIso() });
+      log("Timed out waiting for overlay play button", { selector: playSel, timeoutMs: 20000, at: PlayEmbeddedYoutubeVideo._nowIso() });
       return;
     }
 
     try {
       playBtn.click();
-      log("Clicked overlay play button", { selector: playSel, at: SoundCloudButtonClassSequencer._nowIso() });
+      log("Clicked overlay play button", { selector: playSel, at: PlayEmbeddedYoutubeVideo._nowIso() });
     } catch (e) {
-      log("Failed to click overlay play button", { selector: playSel, error: String(e), at: SoundCloudButtonClassSequencer._nowIso() });
+      log("Failed to click overlay play button", { selector: playSel, error: String(e), at: PlayEmbeddedYoutubeVideo._nowIso() });
       return;
     }
 
     // 2) Wait for endscreen replay button to show, then end behavior
-    const replayBtn = await SoundCloudButtonClassSequencer._waitForSelector(replaySel, { timeoutMs: 20 * 60 * 1000 });
+    const replayBtn = await PlayEmbeddedYoutubeVideo._waitForSelector(replaySel, { timeoutMs: 20 * 60 * 1000 });
     if (!replayBtn) {
-      log("Timed out waiting for endscreen replay button", { selector: replaySel, at: SoundCloudButtonClassSequencer._nowIso() });
+      log("Timed out waiting for endscreen replay button", { selector: replaySel, at: PlayEmbeddedYoutubeVideo._nowIso() });
       return;
     }
 
-    log("Video finished playing (endscreen replay button appeared)", { selector: replaySel, at: SoundCloudButtonClassSequencer._nowIso() });
+    log("Video finished playing (endscreen replay button appeared)", { selector: replaySel, at: PlayEmbeddedYoutubeVideo._nowIso() });
     return;
   }
 }
