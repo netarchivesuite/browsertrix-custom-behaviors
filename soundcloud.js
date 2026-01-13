@@ -9,7 +9,8 @@ class SoundCloudButtonClassSequencer {
   static id = "SoundCloud Button-Class Sequencer";
 
   static isMatch() {
-    return /https:\/\/soundcloud\.com\/[^/]+\/tracks/.test(window.location.href);
+    return true;
+    //return /https:\/\/soundcloud\.com\/[^/]+\/tracks/.test(window.location.href);
   }
 
   static init() { return {}; }
