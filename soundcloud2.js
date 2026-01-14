@@ -39,7 +39,7 @@ class SoundCloudButtonClassSequencer {
   }
 
   static _countPlayButtons() {
-    return document.querySelectorAll('a.playButton[role="button"]').length;
+    return document.querySelectorAll('a.playButton[role="button"]:not(.sc-button-disabled)').length;
   }
 
   static _docScrollHeight() {
@@ -268,8 +268,8 @@ class SoundCloudButtonClassSequencer {
       quietMs: 700
     });
 
-    const buttons = Array.from(document.querySelectorAll('a.playButton[role="button"]'));
-    if (!buttons.length) { log('No elements found: a.playButton[role="button"]'); return; }
+    const buttons = Array.from(document.querySelectorAll('a.playButton[role="button"]:not(.sc-button-disabled):not([aria-disabled="true"])'));
+    if (!buttons.length) { log('No elements found: a.playButton[role="button"]:not(.sc-button-disabled):not([aria-disabled="true"])'); return; }
     log(`Found ${buttons.length} play buttons after full scroll`);
 
     for (let i = 0; i < buttons.length; i++) {
