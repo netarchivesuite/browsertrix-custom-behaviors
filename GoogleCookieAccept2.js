@@ -32,12 +32,5 @@ class GoogleCookieAccept2
   } else {
     ctx.log({msg: "No Accept button Found"});
   }
-
-    
-      const btn = document.querySelector('button[aria-label*="accept" i]');
-      if (btn) {
-        btn.click();
-        ctx.log({msg: "Accept button clicked"});
-    }
   }
 }
