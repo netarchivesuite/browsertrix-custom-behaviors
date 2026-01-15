@@ -11,15 +11,17 @@ class GoogleCookieAccept2
   }
 
   async awaitPageLoad(ctx) {
-    const { Lib } = ctx;
-    const btn = document.querySelector('button[aria-label*="accept" i]');
+
+
+  }
+
+  async* run(ctx) {
+  const { Lib } = ctx;
+  await Lib.sleep(3000);
+      const btn = document.querySelector('button[aria-label*="accept" i]');
       if (btn) {
         btn.click();
         ctx.log({msg: "Accept button clicked"});
     }
-  }
-
-  async* run(ctx) {
-
   }
 }
