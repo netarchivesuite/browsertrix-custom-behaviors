@@ -1,13 +1,6 @@
-class GoogleCookieAccept3 {
-  static id = "GoogleCookieAccept3";
+class GoogleCookieAccept4 {
+  static id = "GoogleCookieAccept4";
   
-  selectors = [
-    "button"
-  ];
-  triggerwords = [
-    "Acceptér alle"
-  ].map(t => t.toLowerCase());
-
   static isMatch(url) {
     //return window.location.href.includes("consent.google.com");
     return true; //run on all pages
@@ -18,8 +11,6 @@ class GoogleCookieAccept3 {
   static init() {
     return {};
   }
-
-  static runInIframes = true;
 
   async* run(ctx) {
     const { Lib } = ctx;
