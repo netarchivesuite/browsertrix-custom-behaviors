@@ -47,6 +47,7 @@ class GoogleCookieAccept3 {
         if (this.triggerwords.some(w => w === txt)) {
           elem.click();
           click++;
+          await Lib.sleep(10000);
         }
       }
       if (elems.length > 0) {
