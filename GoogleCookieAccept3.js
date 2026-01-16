@@ -10,11 +10,6 @@ class GoogleCookieAccept2
     return {};
   }
 
-  async awaitPageLoad(ctx) {
-
-
-  }
-
   async* run(ctx) {
   const { Lib } = ctx;
   await Lib.sleep(3000);
