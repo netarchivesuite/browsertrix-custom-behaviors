@@ -1,36 +1,58 @@
-class GoogleCookieAccept2
-{
-  static id = "GoogleCookieAccept2";
+class GoogleCookieAccept3 {
+  static id = "GoogleCookieAccept23";
+  
+  selectors = [
+    "a",
+    "button",
+    "button.lc-load-more",
+    "span[role=treeitem]",
+    "button#load-more-posts",
+    "#pagenation",
+    "button.CybotCookiebotDialogBodyButton"
+  ];
+  triggerwords = [
+    "se mere",
+    "åbn",
+    "flere kommentarer",
+    "se flere",
+    "indlæs flere nyheder",
+    "hent flere",
+    "vis flere",
+    "tillad alle",
+    "Acceptér alle"
+  ].map(t => t.toLowerCase());
 
-  static isMatch() {
-    return window.location.href.includes("consent.google.com");
+  static isMatch(url) {
+    //return window.location.href.includes("consent.google.com");
+    return true; //run on all pages
+    //return /[\s\S]*/.test(window.location.href);
+    //return window.location.href === "https://www.trm.dk/nyheder/";
   }
 
   static init() {
     return {};
   }
 
+  static runInIframes = true;
+
   async* run(ctx) {
-  const { Lib } = ctx;
-  await Lib.sleep(3000);
-
-
-
-        for await (const elem of document.querySelectorAll('button[aria-label*="accept" i]')) {
-      elem.click();
-
-      const maxAttempts = 10;
-      let attempts = 0;
-      while(true) {
-        if (attempts >= maxAttempts) {
-          break;
+    let click = 0;
+    const { Lib } = ctx;
+    await Lib.sleep(3000);
+     // click if matched
+      const selectstring = this.selectors.join(",");
+      const elems = document.querySelectorAll(selectstring);
+      for (const elem of elems) {
+        const txt = (elem.innerText || elem.textContent || "").toLowerCase().trim();
+        if (this.triggerwords.some(w => w === txt)) {
+          elem.click();
+          click++;
         }
-        attempts++;
-
-        
-        await Lib.sleep(500);
       }
-      yield Lib.getState(ctx, "Played track", "tracksPlayed");
+      if (elems.length > 0) {
+        ctx.log({ msg: "Clicked Accept buttons", totalClicks: click, thisRound: elems.length });
+      }
+
+
     }
-   }
-}
+  }
