@@ -1,5 +1,5 @@
 class GoogleCookieAccept3 {
-  static id = "GoogleCookieAccept23";
+  static id = "GoogleCookieAccept3";
   
   selectors = [
     "a",
