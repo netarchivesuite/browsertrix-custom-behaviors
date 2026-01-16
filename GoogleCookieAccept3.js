@@ -2,23 +2,9 @@ class GoogleCookieAccept3 {
   static id = "GoogleCookieAccept3";
   
   selectors = [
-    "a",
-    "button",
-    "button.lc-load-more",
-    "span[role=treeitem]",
-    "button#load-more-posts",
-    "#pagenation",
-    "button.CybotCookiebotDialogBodyButton"
+    "button"
   ];
   triggerwords = [
-    "se mere",
-    "åbn",
-    "flere kommentarer",
-    "se flere",
-    "indlæs flere nyheder",
-    "hent flere",
-    "vis flere",
-    "tillad alle",
     "Acceptér alle"
   ].map(t => t.toLowerCase());
 
@@ -36,7 +22,6 @@ class GoogleCookieAccept3 {
   static runInIframes = true;
 
   async* run(ctx) {
-    let click = 0;
     const { Lib } = ctx;
     await Lib.sleep(3000);
      // click if matched
@@ -46,14 +31,9 @@ class GoogleCookieAccept3 {
         const txt = (elem.innerText || elem.textContent || "").toLowerCase().trim();
         if (this.triggerwords.some(w => w === txt)) {
           elem.click();
-          click++;
+          ctx.log({ msg: "Clicked Accept buttons", InnerText: elem.innerText });
           await Lib.sleep(10000);
         }
       }
-      if (elems.length > 0) {
-        ctx.log({ msg: "Clicked Accept buttons", totalClicks: click, thisRound: elems.length });
-      }
-
-
     }
   }
