@@ -25,7 +25,7 @@ class GoogleCookieAccept3 {
     const { Lib } = ctx;
     await Lib.sleep(3000);
      
-      const elems = document.querySelectorAll(button);
+      const elems = document.querySelectorAll("button");
       for await (const elem of elems) {
           ctx.log({ msg: "Clicked Accept buttons", InnerText: elem.innerText, textContent: elem.textContent });
           await Lib.sleep(10000);
