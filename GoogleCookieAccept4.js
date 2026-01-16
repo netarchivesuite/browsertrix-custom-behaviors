@@ -16,7 +16,7 @@ class GoogleCookieAccept4 {
     const { Lib } = ctx;
     await Lib.sleep(3000);
      
-      const elems = document.querySelectorAll('button[aria-label*="accept" i]');
+      const elems = document.querySelectorAll('button');
       for await (const elem of elems) {
           ctx.log({ msg: "Clicked Accept buttons", InnerText: elem.innerText, textContent: elem.textContent });
           await Lib.sleep(10000);
