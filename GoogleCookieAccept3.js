@@ -24,16 +24,11 @@ class GoogleCookieAccept3 {
   async* run(ctx) {
     const { Lib } = ctx;
     await Lib.sleep(3000);
-     // click if matched
-      const selectstring = this.selectors.join(",");
-      const elems = document.querySelectorAll(selectstring);
-      for (const elem of elems) {
-        const txt = (elem.innerText || elem.textContent || "").toLowerCase().trim();
-        if (this.triggerwords.some(w => w === txt)) {
-          elem.click();
-          ctx.log({ msg: "Clicked Accept buttons", InnerText: elem.innerText });
+     
+      const elems = document.querySelectorAll(button);
+      for await (const elem of elems) {
+          ctx.log({ msg: "Clicked Accept buttons", InnerText: elem.innerText, textContent: elem.textContent });
           await Lib.sleep(10000);
         }
       }
     }
-  }
