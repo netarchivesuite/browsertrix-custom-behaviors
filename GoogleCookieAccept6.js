@@ -1,5 +1,5 @@
-class GoogleCookieAccept5 {
-  static id = "GoogleCookieAccept5";
+class GoogleCookieAccept6 {
+  static id = "GoogleCookieAccept6";
 
   static isMatch(url) {
     // Only run on Google's consent pages
@@ -17,7 +17,7 @@ class GoogleCookieAccept5 {
     await Lib.sleep(3000);
 
     // Robust, simple: find the first button whose aria-label contains "accept" (case-insensitive)
-    const btn = document.querySelector('button[aria-label*="accept" i]');
+    let btn = document.querySelector('button[aria-label*="accept" i]');
     if (!btn) {
       btn = document.querySelector('input[type="submit"][value="Acceptér alle"][aria-label="Acceptér alle"]');
     }
