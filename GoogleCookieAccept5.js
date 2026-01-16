@@ -18,7 +18,9 @@ class GoogleCookieAccept5 {
 
     // Robust, simple: find the first button whose aria-label contains "accept" (case-insensitive)
     const btn = document.querySelector('button[aria-label*="accept" i]');
-
+    if (!btn) {
+      btn = document.querySelector('input[type="submit"][value="Acceptér alle"][aria-label="Acceptér alle"]');
+    }
     if (btn) {
       btn.click();
       ctx.log({
