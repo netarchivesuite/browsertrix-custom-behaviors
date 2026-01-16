@@ -19,18 +19,23 @@ class GoogleCookieAccept2
   const { Lib } = ctx;
   await Lib.sleep(3000);
 
-   const buttons = Array.from(document.querySelectorAll('button'));
-   const NumButtons = buttons.length;  
-   ctx.log({msg: "Buttons found", buttons: NumButtons});
-   const target = buttons.find(btn =>
-    btn.innerText?.trim().toLowerCase() === 'acceptér alle'
-  );
 
-  if (target) {
-    target.click();
-    ctx.log({msg: "Accept button clicked"});
-  } else {
-    ctx.log({msg: "No Accept button Found"});
-  }
-  }
+
+        for await (const elem of document.querySelectorAll('button[aria-label*="accept" i]')) {
+      elem.click();
+
+      const maxAttempts = 10;
+      let attempts = 0;
+      while(true) {
+        if (attempts >= maxAttempts) {
+          break;
+        }
+        attempts++;
+
+        
+        await Lib.sleep(500);
+      }
+      yield Lib.getState(ctx, "Played track", "tracksPlayed");
+    }
+   }
 }
