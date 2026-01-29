@@ -101,21 +101,6 @@ class epages {
       }
     }
 
-    // Then try clicking pdf menu item
-    const pdfBtn = document.getElementById("pdfMenuItem");
-    if (pdfBtn) {
-      try {
-        pdfBtn.click();
-        yield ctx.Lib.getState(ctx, "epages: clicked #pdfMenuItem; waiting 5s");
-        await sleep(25000);
-      } catch (e) {
-        yield ctx.Lib.getState(ctx, `epages: error clicking #pdfMenuItem: ${String(e)}`);
-       
-      }
-    } else {
-      yield ctx.Lib.getState(ctx, "epages: #pdfMenuItem not found; ending");
-    }
-
     yield ctx.Lib.getState(ctx, "epages: done");
   }
 }
