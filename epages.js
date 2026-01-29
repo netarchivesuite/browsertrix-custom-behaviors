@@ -4,7 +4,7 @@ class epages {
 
   // required: a function that checks if a behavior should be run for a given page.
   static isMatch() {
-    return /^https?:\/\/www\.e-pages\.dk\/[^\/]+\/[^\/]+\/$/.test(window.location.href);
+    return /^https:\/\/www\.e-pages\.dk\/[^\/]+\/[^\/]+\/$/.test(window.location.href);
   }
 
   // required: typically should be left as-is.
