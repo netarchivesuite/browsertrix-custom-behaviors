@@ -83,7 +83,8 @@ class epages {
     while (true) {
       const nextBtn = document.querySelector(nextSelector);
 
-      if (!nextBtn) {
+      // Check if the button exists and is visible
+        if (!nextBtn || (nextBtn.offsetWidth === 0 && nextBtn.offsetHeight === 0)) {
         yield ctx.Lib.getState(ctx, 'epages: “Næste side” not found anymore; stopping page-turn loop');
         break;
       }
