@@ -94,7 +94,7 @@ class epages {
         nextBtn.click();
 
         yield ctx.Lib.getState(ctx, 'epages: clicked “Næste side”; waiting 2s');
-        await sleep(2000);
+        await sleep(3000);
       } catch (e) {
         yield ctx.Lib.getState(ctx, `epages: error clicking “Næste side”: ${String(e)}`);
         break;
