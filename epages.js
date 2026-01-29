@@ -17,11 +17,39 @@ class epages {
 
   // optional: custom page-load readiness check
   async awaitPageLoad() {
-    // Return true once the "Næste side" button is present (or immediately if already present)
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // If a consent/allow button exists (innerText contains "tillad"), click it first.
+    const tryClickTillad = () => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const btn = buttons.find((b) =>
+        (b?.innerText || "").toLowerCase().includes("tillad")
+      );
+      if (!btn) return false;
+
+      try {
+        btn.focus();
+        btn.click();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Call once immediately (no harm if not present)
+    if (tryClickTillad()) {
+      // Give UI a moment to update after consent
+      await sleep(500);
+    }
+
     const hasNext = () =>
       !!document.querySelector('button[aria-label="Næste side"]');
 
-    if (hasNext()) return true;
+    if (hasNext()) {
+      // Try again right before returning true in case the consent appears late
+      if (tryClickTillad()) await sleep(500);
+      return true;
+    }
 
     // Poll briefly until found (or time out and return false)
     const timeoutMs = 15000;
@@ -29,8 +57,16 @@ class epages {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
-      if (hasNext()) return true;
-      await new Promise((r) => setTimeout(r, intervalMs));
+      // Keep trying consent while waiting for the next button
+      if (tryClickTillad()) await sleep(500);
+
+      if (hasNext()) {
+        // Ensure consent click attempted immediately before readiness
+        if (tryClickTillad()) await sleep(500);
+        return true;
+      }
+
+      await sleep(intervalMs);
     }
 
     return false;
@@ -68,7 +104,6 @@ class epages {
     const pdfBtn = document.getElementById("pdfMenuItem");
     if (pdfBtn) {
       try {
-        pdfBtn.focus();
         pdfBtn.click();
         yield ctx.Lib.getState(ctx, "epages: clicked #pdfMenuItem; waiting 5s");
         await sleep(5000);
