@@ -1,4 +1,4 @@
-class GoogleCookieAccept6 {
+class GoogleCookieAccept2 {
     static id = "GoogleCookieAccept2";
 
     static isMatch(url) {
@@ -10,7 +10,7 @@ class GoogleCookieAccept6 {
         return {};
     }
 
-    async* run(ctx) {
+    async run(ctx) { // Changed to async function instead of async*
         const { Lib } = ctx;
 
         // Small wait to let the consent UI render
@@ -28,7 +28,7 @@ class GoogleCookieAccept6 {
                 innerText.includes(keyword) || 
                 classList.includes(keyword) || 
                 ariaLabel.includes(keyword) || 
-                value.includes(keyword);
+                value.includes(keyword)
             );
         };
 
