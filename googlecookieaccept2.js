@@ -10,7 +10,7 @@ class GoogleCookieAccept2 {
   }
 
   // no async generator
-  async run(ctx) {
+  async *run(ctx) {
     const Lib = ctx.Lib;
 
     await Lib.sleep(3000);
