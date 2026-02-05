@@ -275,7 +275,7 @@ class LogIndBehavior {
       }
 
       try {
-        emailInput.value = "[username]";
+        emailInput.value = "[sn.dk_username]";
         emailInput.dispatchEvent(new Event("input", { bubbles: true }));
         emailInput.dispatchEvent(new Event("change", { bubbles: true }));
       } catch (e) {
@@ -294,7 +294,7 @@ class LogIndBehavior {
       }
 
       try {
-        passwordInput.value = "[password]";
+        passwordInput.value = "[sn.dk_password]";
         passwordInput.dispatchEvent(new Event("input", { bubbles: true }));
         passwordInput.dispatchEvent(new Event("change", { bubbles: true }));
       } catch (e) {
@@ -351,3 +351,4 @@ class LogIndBehavior {
     }
   }
 }
+
