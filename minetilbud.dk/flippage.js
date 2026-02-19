@@ -37,7 +37,7 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-        scrollToOffset(document.documentElement, 0);
+        Lib.scrollToOffset(document.documentElement, 0);
       } catch (_) {
         // swallow
       }
