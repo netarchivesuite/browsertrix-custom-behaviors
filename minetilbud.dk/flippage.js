@@ -13,15 +13,14 @@ class NextPagePager {
 
   static runInIframes = false;
 
-  // Selector for the SVG icon used as the "next page" control
   npButtonSelector = 'svg[aria-label="Navigate to next page"]';
 
-  // Persisted across run()
   lastPageInfo = "";
+  _cookieLog = null;
 
   async awaitPageLoad() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const maxWaitMs = 20000;
+    const maxWaitMs = 5000;
     const start = Date.now();
 
     try {
@@ -29,14 +28,22 @@ class NextPagePager {
         await sleep(100);
       }
 
-      // Extra check: ensure np-button exists
+      // Ensure np-button exists; if it doesn't appear in time, scroll to bottom (lazy-load trigger)
       while (Date.now() - start < maxWaitMs) {
         const npButton = document.querySelector(this.npButtonSelector);
-        if (npButton) return;
+        if (npButton) return true;
         await sleep(200);
       }
+
+      // Timed out waiting for np-button: scroll to bottom of page
+      try {
+        scrollToOffset(document.documentElement, 0);
+      } catch (_) {
+        // swallow
+      }
+      return false;
     } catch (_) {
-      // swallow
+      return false;
     }
   }
 
@@ -55,18 +62,15 @@ class NextPagePager {
     const observer = new MutationObserver(clickDecline);
     observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    // Also try immediately
     clickDecline();
   }
 
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    // Auto-decline Cookiebot consent if present, with yield logging
+    // Cookiebot auto-decline (with yield log)
     try {
       this.setupCookiebotAutoDecline((msg) => {
-        // Yielding from callback is not possible directly; push to ctx.log if available,
-        // and also buffer a message to yield on next tick.
         if (ctx?.log) ctx.log(msg);
         this._cookieLog = msg;
       });
@@ -74,31 +78,40 @@ class NextPagePager {
       yield { msg: "Failed to initialize Cookiebot auto-decline." };
     }
 
-    // Initial wait for load + np-button presence
-    await this.awaitPageLoad();
+    // Wait for load + np-button; if timeout triggers scroll-to-bottom, wait again briefly
+    const hadNpButton = await this.awaitPageLoad();
+    if (!hadNpButton) {
+      yield { msg: "np-button not found after awaitPageLoad; scrolled to bottom to trigger lazy-load." };
 
-    // Emit cookie click log if it happened before run loop started
+      // Give the page a moment after scrolling, then re-check for np-button
+      const retryStart = Date.now();
+      const retryMaxMs = 10000;
+      while (Date.now() - retryStart < retryMaxMs) {
+        if (document.querySelector(this.npButtonSelector)) break;
+        await sleep(200);
+      }
+    }
+
+    // Emit cookie click log if it happened early
     if (this._cookieLog) {
       yield { msg: this._cookieLog };
       this._cookieLog = null;
     }
 
     while (true) {
-      // Emit cookie click log if it happened asynchronously
+      // Emit cookie click log if it happens asynchronously
       if (this._cookieLog) {
         yield { msg: this._cookieLog };
         this._cookieLog = null;
       }
 
       const npButton = document.querySelector(this.npButtonSelector);
-
       if (!npButton) {
         yield { msg: "np-button not found." };
         break;
       }
 
       const pageInfoElement = npButton.parentElement?.previousElementSibling;
-
       if (!pageInfoElement) {
         yield { msg: "Page info element not found." };
         break;
@@ -129,7 +142,7 @@ class NextPagePager {
       yield { msg: "Clicked np-button, waiting for 1 second..." };
       await sleep(1000);
 
-      // Optional: wait briefly for page info to change
+      // Wait briefly for page info to change (best-effort)
       const changeStart = Date.now();
       const changeMaxMs = 10000;
       while (Date.now() - changeStart < changeMaxMs) {
@@ -141,5 +154,3 @@ class NextPagePager {
         await sleep(200);
       }
     }
-  }
-}
