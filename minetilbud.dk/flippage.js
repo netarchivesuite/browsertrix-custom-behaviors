@@ -20,7 +20,7 @@ class NextPagePager {
 
   async awaitPageLoad() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const maxWaitMs = 5000;
+    const maxWaitMs = 20000;
     const start = Date.now();
 
     try {
@@ -37,7 +37,7 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-        Lib.scrollToOffset(document.documentElement, 0);
+        ctx.Lib.scrollToOffset(document.documentElement, 0);
       } catch (_) {
         // swallow
       }
@@ -154,3 +154,5 @@ class NextPagePager {
         await sleep(200);
       }
     }
+  }
+}
