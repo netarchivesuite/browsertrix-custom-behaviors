@@ -1,18 +1,23 @@
 class NextPagePager {
   // required: id displayed in logs
-  static id = "Next Page Pager";
+  static id = "Next Page Pager (minetilbud.dk)";
 
   // required: decide when to run
   static isMatch() {
-    return /^https:\/\/minetilbud\.dk\/katalog\/.*/i.test(window.location.href);
+    return /https:\/\/minetilbud\.dk\/katalog\/.*/i.test(window.location.href);
   }
 
-  static init() { return {}; }
+  static init() {
+    return {};
+  }
+
   static runInIframes = false;
 
-  // persisted across run()
-  pageNumbersText = null;
-  total = null;
+  // Selector for the SVG icon used as the "next page" control
+  npButtonSelector = 'svg[aria-label="Navigate to next page"]';
+
+  // Persisted across run()
+  lastPageInfo = "";
 
   async awaitPageLoad() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,26 +29,10 @@ class NextPagePager {
         await sleep(100);
       }
 
-      // Wait for the "next page" svg, then read the previous element as page numbers.
+      // Extra check requested: ensure np-button exists (wait a bit for it)
       while (Date.now() - start < maxWaitMs) {
-        const nextSvg = document.querySelector('svg[aria-label="Navigate to next page"]');
-        if (nextSvg) {
-          const pageEl = nextSvg.previousElementSibling;
-          const text = pageEl?.textContent?.trim();
-
-          if (text) {
-            // Expected format: "01 / 38" (but allow flexible whitespace)
-            const m = text.match(/\/\s*(\d+)\s*$/);
-            if (m) {
-              const n = Number(m[1]);
-              if (Number.isFinite(n) && n > 0) {
-                this.pageNumbersText = text;
-                this.total = n;
-                break;
-              }
-            }
-          }
-        }
+        const npButton = document.querySelector(this.npButtonSelector);
+        if (npButton) return;
         await sleep(200);
       }
     } catch (_) {
@@ -54,18 +43,61 @@ class NextPagePager {
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    if (this.pageNumbersText) yield { msg: this.pageNumbersText };
+    // Initial wait for load + np-button presence
+    await this.awaitPageLoad();
 
-    const total = this.total ?? 0;
-    if (total) {
-      yield { msg: `Total pages (${total})` };
+    while (true) {
+      const npButton = document.querySelector(this.npButtonSelector);
 
-      for (let i = 1; i <= total; i++) {
-        document.querySelector('svg[aria-label="Navigate to next page"]')?.click();
-        await sleep(2000);
+      if (!npButton) {
+        yield { msg: "np-button not found." };
+        break;
       }
-    } else {
-      yield { msg: "Total pages unknown" };
+
+      const pageInfoElement = npButton.parentElement?.previousElementSibling;
+
+      if (!pageInfoElement) {
+        yield { msg: "Page info element not found." };
+        break;
+      }
+
+      const currentPageInfo = (pageInfoElement.textContent || "").trim();
+      yield { msg: `Current Page Info: ${currentPageInfo}` };
+
+      if (!currentPageInfo) {
+        yield { msg: "Current Page Info is empty, stopping." };
+        break;
+      }
+
+      if (currentPageInfo === this.lastPageInfo) {
+        yield { msg: "Page info hasn't changed, stopping." };
+        break;
+      }
+
+      this.lastPageInfo = currentPageInfo;
+
+      // Click the SVG via dispatched event (as in your script)
+      const clickEvent = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      });
+      npButton.dispatchEvent(clickEvent);
+
+      yield { msg: "Clicked np-button, waiting for 1 second..." };
+      await sleep(1000);
+
+      // Optional: wait for the page info to change (briefly) to reduce misclick loops
+      const changeStart = Date.now();
+      const changeMaxMs = 10000;
+      while (Date.now() - changeStart < changeMaxMs) {
+        const nextInfo = (pageInfoElement.textContent || "").trim();
+        if (nextInfo && nextInfo !== currentPageInfo) {
+          yield { msg: `Detected page change: ${nextInfo}` };
+          break;
+        }
+        await sleep(200);
+      }
     }
   }
 }
