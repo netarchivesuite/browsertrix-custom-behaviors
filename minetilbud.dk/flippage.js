@@ -20,7 +20,7 @@ class NextPagePager {
 
   async awaitPageLoad() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const maxWaitMs = 20000;
+    const maxWaitMs = 5000;
     const start = Date.now();
 
     try {
@@ -37,30 +37,7 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-const step = 400;
-const maxNoMove = 10;
-let noMove = 0;
-
-while (window.scrollY + window.innerHeight < document.documentElement.scrollHeight) {
-  const before = window.scrollY;
-
-  window.scrollBy({ top: step, behavior: "auto" });
-
-  // wait until scrollY changes or time out
-  const t0 = Date.now();
-  while (window.scrollY === before && Date.now() - t0 < 500) {
-    await new Promise(r => setTimeout(r, 50));
-  }
-
-  if (window.scrollY === before) {
-    noMove++;
-    if (noMove >= maxNoMove) break; // likely hit a non-window scroller or scroll blocked
-  } else {
-    noMove = 0;
-  }
-
-  await new Promise(r => setTimeout(r, 150));
-}
+           window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
         }
       } catch (_) {
         // swallow
