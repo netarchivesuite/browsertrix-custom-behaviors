@@ -37,7 +37,26 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-        window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
+        const step = 100;
+        const delay = 100; // ms between scrolls
+        const maxIterations = Math.ceil(document.documentElement.scrollHeight / step);
+
+        let i = 0;
+        let lastScrollY = -1;
+
+        while (
+          window.scrollY + window.innerHeight < document.documentElement.scrollHeight &&
+          i < maxIterations &&
+          window.scrollY !== lastScrollY
+          ) {
+            lastScrollY = window.scrollY;
+
+            window.scrollBy({ top: step, behavior: 'smooth' });
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            i++;
+            }
+        }
       } catch (_) {
         // swallow
       }
