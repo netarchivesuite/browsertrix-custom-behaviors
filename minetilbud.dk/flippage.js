@@ -37,7 +37,7 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-        ctx.Lib.scrollToOffset(document.documentElement, 0);
+        window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
       } catch (_) {
         // swallow
       }
