@@ -29,7 +29,7 @@ class NextPagePager {
         await sleep(100);
       }
 
-      // Extra check requested: ensure np-button exists (wait a bit for it)
+      // Extra check: ensure np-button exists
       while (Date.now() - start < maxWaitMs) {
         const npButton = document.querySelector(this.npButtonSelector);
         if (npButton) return;
@@ -40,13 +40,56 @@ class NextPagePager {
     }
   }
 
+  setupCookiebotAutoDecline(onClickLog) {
+    const clickDecline = () => {
+      const btn = document.getElementById("CybotCookiebotDialogBodyButtonDecline");
+      if (btn) {
+        btn.click();
+        try {
+          onClickLog?.("Cookiebot decline clicked");
+        } catch {}
+        observer.disconnect();
+      }
+    };
+
+    const observer = new MutationObserver(clickDecline);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    // Also try immediately
+    clickDecline();
+  }
+
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Auto-decline Cookiebot consent if present, with yield logging
+    try {
+      this.setupCookiebotAutoDecline((msg) => {
+        // Yielding from callback is not possible directly; push to ctx.log if available,
+        // and also buffer a message to yield on next tick.
+        if (ctx?.log) ctx.log(msg);
+        this._cookieLog = msg;
+      });
+    } catch (_) {
+      yield { msg: "Failed to initialize Cookiebot auto-decline." };
+    }
 
     // Initial wait for load + np-button presence
     await this.awaitPageLoad();
 
+    // Emit cookie click log if it happened before run loop started
+    if (this._cookieLog) {
+      yield { msg: this._cookieLog };
+      this._cookieLog = null;
+    }
+
     while (true) {
+      // Emit cookie click log if it happened asynchronously
+      if (this._cookieLog) {
+        yield { msg: this._cookieLog };
+        this._cookieLog = null;
+      }
+
       const npButton = document.querySelector(this.npButtonSelector);
 
       if (!npButton) {
@@ -76,7 +119,6 @@ class NextPagePager {
 
       this.lastPageInfo = currentPageInfo;
 
-      // Click the SVG via dispatched event (as in your script)
       const clickEvent = new MouseEvent("click", {
         bubbles: true,
         cancelable: true,
@@ -87,7 +129,7 @@ class NextPagePager {
       yield { msg: "Clicked np-button, waiting for 1 second..." };
       await sleep(1000);
 
-      // Optional: wait for the page info to change (briefly) to reduce misclick loops
+      // Optional: wait briefly for page info to change
       const changeStart = Date.now();
       const changeMaxMs = 10000;
       while (Date.now() - changeStart < changeMaxMs) {
