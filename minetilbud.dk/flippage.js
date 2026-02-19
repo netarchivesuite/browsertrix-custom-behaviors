@@ -37,8 +37,7 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-           window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
-        }
+        window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
       } catch (_) {
         // swallow
       }
@@ -145,7 +144,7 @@ class NextPagePager {
 
       // Wait briefly for page info to change (best-effort)
       const changeStart = Date.now();
-      const changeMaxMs = 10000;
+      const changeMaxMs = 2000;
       while (Date.now() - changeStart < changeMaxMs) {
         const nextInfo = (pageInfoElement.textContent || "").trim();
         if (nextInfo && nextInfo !== currentPageInfo) {
