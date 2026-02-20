@@ -1,3 +1,19 @@
+/**
+ * Author: Thomas Smedebøl
+ * Created: 2026-02-20
+ * Last modified: 2026-02-20
+ * Version: 1.0.0
+ *
+ * Purpose: flip pages until end of onlineads, or scroll to bottom on pagevariations without pages to flip.
+ * Scope: https:\/\/minetilbud\.dk\/katalog\/.*
+ * Assumptions: Ads are located on https:\/\/minetilbud\.dk\/katalog\/.*
+ * Dependencies: 
+ * Config: https://minetilbud.dk as seed and 1 hop, 1 browserwindow to keep polite
+ * Limitations: Will stop working if selectors or aria-label changes
+ * Changelog:
+ *  - 1.0.0: Initial version
+ */
+
 class NextPagePager {
   // required: id displayed in logs
   static id = "Next Page Pager (minetilbud.dk)";
