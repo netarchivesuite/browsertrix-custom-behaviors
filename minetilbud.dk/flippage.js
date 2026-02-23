@@ -50,18 +50,16 @@ class NextPagePager {
         if (npButton) return true;
         await sleep(200);
       }
-      yield { awaitPageLoad: timed out waiting for next-page button (selector="${this.npButtonSelector}", elapsedMs=${elapsed}). Will scroll to bottom to trigger lazy-load. };
+
       // Timed out waiting for np-button: scroll to bottom of page
-        try {
+      try {
         window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
       } catch (_) {
-         yield { awaitPageLoad: scrollTo bottom failed (${err?.name || "Error"}: ${err?.message || "no message"}) };
+        // swallow
       }
       return false;
     } catch (_) {
-       yield { awaitPageLoad: timed out waiting for readyState=complete (state=${document.readyState}, elapsedMs=${elapsed}) };
-       return false;
-      
+      return false;
     }
   }
 
@@ -74,7 +72,6 @@ class NextPagePager {
           onClickLog?.("Cookiebot decline clicked");
         } catch {}
         observer.disconnect();
-        yield { Cookiebot: onClickLog threw (${err?.name || "Error"}: ${err?.message || "no message"}) };
       }
     };
 
