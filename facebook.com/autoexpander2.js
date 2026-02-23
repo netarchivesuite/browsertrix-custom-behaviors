@@ -1,8 +1,11 @@
 /**
- * Author: (ported from Chrome extension for user)
+ * Author: Thsm
  * Created: 2026-02-20
  * Last modified: 2026-02-20
  * Version: 1.0.1
+ *
+ * Important:
+ *  - Only use 1 browserwindow to avoid blocking
  *
  * Purpose:
  *  - On facebook.com, slowly scroll through long pages.
