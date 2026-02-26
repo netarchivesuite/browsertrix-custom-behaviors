@@ -4,12 +4,7 @@ class ClickAdnmOverlayButton {
   static isMatch() {
     return true;
   }
-  
-  // required: typically should be left as-is. 
-    static init() { return {}; }
-  
-  // Match epages naming. If your environment truly supports plural,
-  // keeping singular usually still works only if singular is the expected key.
+
   static runInIframe = true;
 
   static init() {
@@ -18,7 +13,7 @@ class ClickAdnmOverlayButton {
 
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const selector = "button.adnm-overlayButton";
+    const selector = "div.adsm-wallpaper-r button";
 
     yield ctx.Lib.getState(ctx, `adnm: starting; looking for ${selector}`);
 
@@ -26,19 +21,45 @@ class ClickAdnmOverlayButton {
     const intervalMs = 200;
     const start = Date.now();
 
-    // Poll until button appears and is clickable-ish
+    const forceClick = (el) => {
+      const rect = el.getBoundingClientRect();
+      const clientX = rect.left + rect.width / 2;
+      const clientY = rect.top + rect.height / 2;
+
+      const eventOptions = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX,
+        clientY,
+        button: 0,
+      };
+
+      el.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+      el.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+      el.dispatchEvent(new PointerEvent("pointerup", eventOptions));
+      el.dispatchEvent(new MouseEvent("mouseup", eventOptions));
+      el.dispatchEvent(new MouseEvent("click", eventOptions));
+    };
+
     while (Date.now() - start < timeoutMs) {
       const btn = document.querySelector(selector);
 
       if (btn) {
-        // Basic visibility check similar to epages
         const visible = !(btn.offsetWidth === 0 && btn.offsetHeight === 0);
 
         if (visible) {
           try {
+            btn.scrollIntoView({ block: "center", inline: "center" });
             btn.focus();
-            btn.click();
-            yield ctx.Lib.getState(ctx, `adnm: clicked ${selector}`);
+            forceClick(btn);
+
+            yield ctx.Lib.getState(ctx, `adnm: force-clicked ${selector}`);
+
+            // 5 second wait after click
+            await sleep(5000);
+
+            yield ctx.Lib.getState(ctx, `adnm: waited 5000ms after click`);
             return;
           } catch (e) {
             yield ctx.Lib.getState(ctx, `adnm: found ${selector} but click failed: ${String(e)}`);
