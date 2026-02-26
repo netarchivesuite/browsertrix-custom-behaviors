@@ -4,7 +4,10 @@ class ClickAdnmOverlayButton {
   static isMatch() {
     return true;
   }
-
+  
+  // required: typically should be left as-is. 
+    static init() { return {}; }
+  
   // Match epages naming. If your environment truly supports plural,
   // keeping singular usually still works only if singular is the expected key.
   static runInIframe = true;
