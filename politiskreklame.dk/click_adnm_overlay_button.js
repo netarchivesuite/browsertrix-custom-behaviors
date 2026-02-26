@@ -1,30 +1,52 @@
-class ClickAdnmOverlayButton
-{
-  // required: an id for this behavior, will be displayed in the logs
+class ClickAdnmOverlayButton {
   static id = "click_adnm_overlay_button";
 
-  // required: decide when to run this behavior
   static isMatch() {
-    return true; // run on all pages
+    return true;
   }
 
-  // optional: also run in iframes
-  static runInIframes = true;
+  // Match epages naming. If your environment truly supports plural,
+  // keeping singular usually still works only if singular is the expected key.
+  static runInIframe = true;
 
-  // required: main behavior
+  static init() {
+    return {};
+  }
+
   async* run(ctx) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const selector = "button.adnm-overlayButton";
 
-    try {
-      // wait for the button to appear (up to 10s)
-      await ctx.page.waitForSelector(selector, { timeout: 10000 });
+    yield ctx.Lib.getState(ctx, `adnm: starting; looking for ${selector}`);
 
-      // click once
-      await ctx.page.click(selector);
+    const timeoutMs = 10000;
+    const intervalMs = 200;
+    const start = Date.now();
 
-      yield ctx.getState(`clicked ${selector}`);
-    } catch (e) {
-      yield ctx.getState(`${selector} not found or not clickable`);
+    // Poll until button appears and is clickable-ish
+    while (Date.now() - start < timeoutMs) {
+      const btn = document.querySelector(selector);
+
+      if (btn) {
+        // Basic visibility check similar to epages
+        const visible = !(btn.offsetWidth === 0 && btn.offsetHeight === 0);
+
+        if (visible) {
+          try {
+            btn.focus();
+            btn.click();
+            yield ctx.Lib.getState(ctx, `adnm: clicked ${selector}`);
+            return;
+          } catch (e) {
+            yield ctx.Lib.getState(ctx, `adnm: found ${selector} but click failed: ${String(e)}`);
+            return;
+          }
+        }
+      }
+
+      await sleep(intervalMs);
     }
+
+    yield ctx.Lib.getState(ctx, `adnm: ${selector} not found/visible within ${timeoutMs}ms`);
   }
 }
