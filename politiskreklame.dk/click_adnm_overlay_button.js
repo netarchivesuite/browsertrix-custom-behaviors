@@ -1,73 +1,113 @@
 class ClickAdnmOverlayButton {
   static id = "click_adnm_overlay_button";
-
   static isMatch() {
     return true;
   }
 
-  // This behavior must run in the Playwright context (needs `page.waitForEvent("popup")`)
-  static runInIframe = false;
+  // Intercepting window.open must run in the same JS context as the page,
+  // so keep this true if your behavior executes inside the page.
+  static runInIframe = true;
 
   static init() {
     return {};
   }
 
   async* run(ctx) {
-    const timeout = 30000;
-    const selector = "button.adnm-overlayButton";
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const btnSelector = "button.adnm-overlayButton";
 
-    // Try common locations for the Playwright `page` object
-    const page =
-      ctx?.page ||
-      ctx?.Playwright?.page ||
-      ctx?.playwright?.page ||
-      ctx?.browser?.page;
+    yield ctx.Lib.getState(ctx, `adnm: installing window.open interceptor`);
 
-    if (!page?.waitForEvent || !page?.locator) {
-      yield ctx.Lib.getState(
-        ctx,
-        `adnm: missing Playwright page on ctx (expected ctx.page). Cannot capture popup URL.`
-      );
+    // --- Option B: intercept window.open and capture the URL passed to it ---
+    const originalOpen = window.open;
+    let capturedUrl = null;
+    let capturedName = null;
+
+    window.open = function (url, name, features) {
+      try {
+        capturedUrl = url ?? "";
+        capturedName = name ?? "";
+        console.log("Popup initial URL:", capturedUrl);
+      } catch (_) {}
+
+      // restore immediately to minimize side-effects
+      try {
+        window.open = originalOpen;
+      } catch (_) {}
+
+      return originalOpen.call(window, url, name, features);
+    };
+
+    // Also capture clicks on <a target="_blank"> as a fallback (many ads use anchors)
+    const onClickCapture = (ev) => {
+      try {
+        const a = ev.target?.closest?.("a");
+        if (a && (a.target === "_blank" || a.rel?.includes("noopener") || a.rel?.includes("noreferrer"))) {
+          const href = a.href || a.getAttribute("href") || "";
+          if (href) {
+            capturedUrl = capturedUrl || href;
+            console.log("Popup initial URL (anchor):", href);
+          }
+        }
+      } catch (_) {}
+    };
+    document.addEventListener("click", onClickCapture, true);
+
+    // --- Find and click the overlay button ---
+    yield ctx.Lib.getState(ctx, `adnm: looking for ${btnSelector}`);
+
+    const timeoutMs = 30000;
+    const start = Date.now();
+
+    let btn = null;
+    while (Date.now() - start < timeoutMs) {
+      btn = document.querySelector(btnSelector);
+      if (btn && !(btn.offsetWidth === 0 && btn.offsetHeight === 0)) break;
+      await sleep(200);
+    }
+
+    if (!btn) {
+      // cleanup
+      try { window.open = originalOpen; } catch (_) {}
+      document.removeEventListener("click", onClickCapture, true);
+
+      yield ctx.Lib.getState(ctx, `adnm: ${btnSelector} not found/visible within ${timeoutMs}ms`);
       return;
     }
 
-    yield ctx.Lib.getState(ctx, `adnm: waiting for popup; clicking ${selector}`);
-
-    let popup;
     try {
-      [popup] = await Promise.all([
-        page.waitForEvent("popup", { timeout }),
-        page.locator(selector).click({ timeout }),
-      ]);
+      btn.focus();
+      btn.click();
+      yield ctx.Lib.getState(ctx, `adnm: clicked ${btnSelector}`);
     } catch (e) {
+      // cleanup
+      try { window.open = originalOpen; } catch (_) {}
+      document.removeEventListener("click", onClickCapture, true);
+
+      yield ctx.Lib.getState(ctx, `adnm: click failed: ${String(e)}`);
+      return;
+    }
+
+    // Wait briefly for window.open to be called and URL captured
+    const captureWaitMs = 2000;
+    const captureStart = Date.now();
+    while (!capturedUrl && Date.now() - captureStart < captureWaitMs) {
+      await sleep(50);
+    }
+
+    // cleanup
+    try { window.open = originalOpen; } catch (_) {}
+    document.removeEventListener("click", onClickCapture, true);
+
+    if (capturedUrl) {
+      console.log("Popup initial URL:", capturedUrl);
       yield ctx.Lib.getState(
         ctx,
-        `adnm: failed to click / no popup within ${timeout}ms: ${String(e)}`
+        `adnm: captured popup initial URL: ${capturedUrl}${capturedName ? ` (name=${capturedName})` : ""}`
       );
       return;
     }
 
-    // Wait for navigation to settle (redirects). Be tolerant if the site uses SPA/no nav events.
-    try {
-      await popup.waitForNavigation({ waitUntil: "networkidle", timeout });
-    } catch (_) {
-      // ignore
-    }
-
-    // Additional settle: load state if available (Playwright has it)
-    try {
-      await popup.waitForLoadState("load", { timeout });
-    } catch (_) {
-      // ignore
-    }
-
-    const finalUrl = popup.url();
-
-    // Send final url to log
-    console.log("Popup final URL:", finalUrl);
-    yield ctx.Lib.getState(ctx, `adnm: popup final URL: ${finalUrl}`);
-
-    // Stop behavior after achieved
-    return;
+    yield ctx.Lib.getState(ctx, `adnm: no popup URL captured (popup may be opened via other means)`);
   }
 }
