@@ -5,72 +5,69 @@ class ClickAdnmOverlayButton {
     return true;
   }
 
-  static runInIframe = true;
+  // This behavior must run in the Playwright context (needs `page.waitForEvent("popup")`)
+  static runInIframe = false;
 
   static init() {
     return {};
   }
 
   async* run(ctx) {
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const selector = "div.adsm-wallpaper-r button";
+    const timeout = 30000;
+    const selector = "button.adnm-overlayButton";
 
-    yield ctx.Lib.getState(ctx, `adnm: starting; looking for ${selector}`);
+    // Try common locations for the Playwright `page` object
+    const page =
+      ctx?.page ||
+      ctx?.Playwright?.page ||
+      ctx?.playwright?.page ||
+      ctx?.browser?.page;
 
-    const timeoutMs = 10000;
-    const intervalMs = 200;
-    const start = Date.now();
-
-    const forceClick = (el) => {
-      const rect = el.getBoundingClientRect();
-      const clientX = rect.left + rect.width / 2;
-      const clientY = rect.top + rect.height / 2;
-
-      const eventOptions = {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX,
-        clientY,
-        button: 0,
-      };
-
-      el.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
-      el.dispatchEvent(new MouseEvent("mousedown", eventOptions));
-      el.dispatchEvent(new PointerEvent("pointerup", eventOptions));
-      el.dispatchEvent(new MouseEvent("mouseup", eventOptions));
-      el.dispatchEvent(new MouseEvent("click", eventOptions));
-    };
-
-    while (Date.now() - start < timeoutMs) {
-      const btn = document.querySelector(selector);
-
-      if (btn) {
-        const visible = !(btn.offsetWidth === 0 && btn.offsetHeight === 0);
-
-        if (visible) {
-          try {
-            btn.scrollIntoView({ block: "center", inline: "center" });
-            btn.focus();
-            forceClick(btn);
-
-            yield ctx.Lib.getState(ctx, `adnm: force-clicked ${selector}`);
-
-            // 5 second wait after click
-            await sleep(5000);
-
-            yield ctx.Lib.getState(ctx, `adnm: waited 5000ms after click`);
-            return;
-          } catch (e) {
-            yield ctx.Lib.getState(ctx, `adnm: found ${selector} but click failed: ${String(e)}`);
-            return;
-          }
-        }
-      }
-
-      await sleep(intervalMs);
+    if (!page?.waitForEvent || !page?.locator) {
+      yield ctx.Lib.getState(
+        ctx,
+        `adnm: missing Playwright page on ctx (expected ctx.page). Cannot capture popup URL.`
+      );
+      return;
     }
 
-    yield ctx.Lib.getState(ctx, `adnm: ${selector} not found/visible within ${timeoutMs}ms`);
+    yield ctx.Lib.getState(ctx, `adnm: waiting for popup; clicking ${selector}`);
+
+    let popup;
+    try {
+      [popup] = await Promise.all([
+        page.waitForEvent("popup", { timeout }),
+        page.locator(selector).click({ timeout }),
+      ]);
+    } catch (e) {
+      yield ctx.Lib.getState(
+        ctx,
+        `adnm: failed to click / no popup within ${timeout}ms: ${String(e)}`
+      );
+      return;
+    }
+
+    // Wait for navigation to settle (redirects). Be tolerant if the site uses SPA/no nav events.
+    try {
+      await popup.waitForNavigation({ waitUntil: "networkidle", timeout });
+    } catch (_) {
+      // ignore
+    }
+
+    // Additional settle: load state if available (Playwright has it)
+    try {
+      await popup.waitForLoadState("load", { timeout });
+    } catch (_) {
+      // ignore
+    }
+
+    const finalUrl = popup.url();
+
+    // Send final url to log
+    console.log("Popup final URL:", finalUrl);
+    yield ctx.Lib.getState(ctx, `adnm: popup final URL: ${finalUrl}`);
+
+    // Stop behavior after achieved
+    return;
   }
 }
