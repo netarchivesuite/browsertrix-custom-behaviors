@@ -1,3 +1,20 @@
+/**
+ * Author: Thomas Smedebøl
+ * Created: 2026-02-27
+ * Last modified: 2026-03-02
+ * Version: 1.0.0
+ *
+ * Purpose: get info about political advertising on mainstreammedia made temporary availible on politiskreklame.dk
+ * Scope: all using political advertising
+ * Assumptions: There has to be a adnm_overlay_button
+ * Dependencies:
+ * Config: Should work on anything.
+ * Limitations: The ads info (budget) are only availible for the duration of the campaign.
+ * Changelog:
+ *  - 1.0.0: Initial version
+ */
+
+
 class ClickAdnmOverlayButton {
   static id = "click_adnm_overlay_button";
   static isMatch() {
