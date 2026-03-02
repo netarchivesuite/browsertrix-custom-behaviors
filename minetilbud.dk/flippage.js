@@ -7,7 +7,7 @@
  * Purpose: flip pages until end of onlineads, or scroll to bottom on pagevariations without pages to flip.
  * Scope: https:\/\/minetilbud\.dk\/katalog\/.*
  * Assumptions: Ads are located on https:\/\/minetilbud\.dk\/katalog\/.*
- * Dependencies: 
+ * Dependencies:
  * Config: https://minetilbud.dk as seed and 1 hop, 1 browserwindow to keep polite
  * Limitations: Will stop working if selectors or aria-label changes
  * Changelog:
@@ -34,6 +34,23 @@ class NextPagePager {
   lastPageInfo = "";
   _cookieLog = null;
 
+  // ---- logging helper (works inside/outside async* run(ctx)) ----
+  _ctx = null;
+  setCtx(ctx) {
+    this._ctx = ctx || null;
+  }
+
+  log(msg) {
+    const payload = typeof msg === "string" ? { msg } : (msg || { msg: "" });
+    try {
+      const logger = this._ctx?.log;
+      if (typeof logger === "function") logger(payload);
+    } catch (_) {
+      // swallow to guarantee logging never throws
+    }
+  }
+  // --------------------------------------------------------------
+
   async awaitPageLoad() {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const maxWaitMs = 5000;
@@ -53,12 +70,13 @@ class NextPagePager {
 
       // Timed out waiting for np-button: scroll to bottom of page
       try {
-        window.scrollTo({top: document.body.scrollHeight,behavior: 'smooth'});
-      } catch (_) {
-        // swallow
+        window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+      } catch (err) {
+        this.log({ msg: "Failed to scroll to bottom after np-button timeout." });
       }
       return false;
-    } catch (_) {
+    } catch (err) {
+      this.log({ msg: "Error while awaiting page load / np-button." });
       return false;
     }
   }
@@ -70,7 +88,9 @@ class NextPagePager {
         btn.click();
         try {
           onClickLog?.("Cookiebot decline clicked");
-        } catch {}
+        } catch (err) {
+          this.log({ msg: "Cookiebot decline clicked, but onClickLog callback failed." });
+        }
         observer.disconnect();
       }
     };
@@ -82,15 +102,19 @@ class NextPagePager {
   }
 
   async* run(ctx) {
+    this.setCtx(ctx);
+
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
     // Cookiebot auto-decline (with yield log)
     try {
       this.setupCookiebotAutoDecline((msg) => {
-        if (ctx?.log) ctx.log(msg);
+        // keep existing behavior + ensure ctx.log payload format
+        if (ctx?.log) ctx.log({ msg });
         this._cookieLog = msg;
       });
-    } catch (_) {
+    } catch (err) {
+      this.log({ msg: "Failed to initialize Cookiebot auto-decline." });
       yield { msg: "Failed to initialize Cookiebot auto-decline." };
     }
 
