@@ -1,28 +1,38 @@
 /**
  * Author: Thomas Smedebøl
  * Created: 2026-02-27
- * Last modified: 2026-03-02
- * Version: 1.0.0
+ * Last modified: 2026-03-03
+ * Version: 1.1.0
  *
  * Purpose: get info about political advertising on mainstreammedia made temporary availible on politiskreklame.dk
  * Scope: all using political advertising
- * Assumptions: There has to be a adnm_overlay_button
+ * Assumptions: There has to be a supported overlay element
  * Dependencies:
  * Config: Should work on anything.
  * Limitations: The ads info (budget) are only availible for the duration of the campaign.
  * Changelog:
+ *  - 1.1.0: Added multiple overlay selectors and centralized selector config
  *  - 1.0.0: Initial version
  */
 
+// ==============================
+// Selectors (Maintainability)
+// ==============================
+const SELECTORS = {
+  overlayTriggers: [
+    "button.adnm-overlayButton",
+    'div.adnm-overlayNotice[role="button"]',
+    "div.adn-ttpa-container",
+  ],
+};
 
 class ClickAdnmOverlayButton {
   static id = "click_adnm_overlay_button";
+
   static isMatch() {
     return true;
   }
 
-  // Intercepting window.open must run in the same JS context as the page,
-  // so keep this true if your behavior executes inside the page.
   static runInIframe = true;
 
   static init() {
@@ -31,30 +41,33 @@ class ClickAdnmOverlayButton {
 
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const btnSelector = "button.adnm-overlayButton";
 
-    // Extract the last URL starting at "https%3A%2F%2Fpolitiskreklame.dk" (or any https%3A%2F%2F...),
-    // decode it into a real URL, and return it.
+    const overlaySelector = SELECTORS.overlayTriggers.join(",");
+
+    const isVisible = (el) =>
+      el &&
+      !(el.offsetWidth === 0 && el.offsetHeight === 0) &&
+      getComputedStyle(el).visibility !== "hidden" &&
+      getComputedStyle(el).display !== "none";
+
     const extractAndDecodeFinalUrl = (captured) => {
       if (!captured) return null;
 
-      // 1) Prefer the exact marker you mentioned
       const marker = "https%3A%2F%2Fpolitiskreklame.dk";
       let idx = captured.lastIndexOf(marker);
 
-      // 2) Fallback: if marker isn't present, try to grab the last encoded https URL segment
       if (idx === -1) {
-        const m = captured.match(/https%3A%2F%2F[^&]+$/); // from last encoded https to end
+        const m = captured.match(/https%3A%2F%2F[^&]+$/);
         if (m) idx = captured.lastIndexOf(m[0]);
       }
 
       if (idx === -1) return null;
 
-      const encodedTail = captured.slice(idx); // from marker to end (may include %3F... etc)
+      const encodedTail = captured.slice(idx);
+
       try {
         return decodeURIComponent(encodedTail);
       } catch (_) {
-        // In case of malformed encodings, try a safer decode
         try {
           return decodeURI(encodedTail);
         } catch (_) {
@@ -65,7 +78,6 @@ class ClickAdnmOverlayButton {
 
     yield ctx.Lib.getState(ctx, `adnm: installing window.open interceptor`);
 
-    // --- Intercept window.open and capture the URL passed to it ---
     const originalOpen = window.open;
     let capturedUrl = null;
     let capturedName = null;
@@ -77,7 +89,6 @@ class ClickAdnmOverlayButton {
         console.log("Popup initial URL:", capturedUrl);
       } catch (_) {}
 
-      // restore immediately to minimize side-effects
       try {
         window.open = originalOpen;
       } catch (_) {}
@@ -85,7 +96,6 @@ class ClickAdnmOverlayButton {
       return originalOpen.call(window, url, name, features);
     };
 
-    // Also capture clicks on <a target="_blank"> as a fallback (many ads use anchors)
     const onClickCapture = (ev) => {
       try {
         const a = ev.target?.closest?.("a");
@@ -105,21 +115,29 @@ class ClickAdnmOverlayButton {
     };
     document.addEventListener("click", onClickCapture, true);
 
-    // --- Find and click the overlay button ---
-    yield ctx.Lib.getState(ctx, `adnm: looking for ${btnSelector}`);
+    yield ctx.Lib.getState(
+      ctx,
+      `adnm: looking for overlay triggers (${overlaySelector})`
+    );
 
     const timeoutMs = 30000;
     const start = Date.now();
 
-    let btn = null;
+    let trigger = null;
+
     while (Date.now() - start < timeoutMs) {
-      btn = document.querySelector(btnSelector);
-      if (btn && !(btn.offsetWidth === 0 && btn.offsetHeight === 0)) break;
+      const candidates = document.querySelectorAll(overlaySelector);
+      for (const el of candidates) {
+        if (isVisible(el)) {
+          trigger = el;
+          break;
+        }
+      }
+      if (trigger) break;
       await sleep(200);
     }
 
-    if (!btn) {
-      // cleanup
+    if (!trigger) {
       try {
         window.open = originalOpen;
       } catch (_) {}
@@ -127,17 +145,19 @@ class ClickAdnmOverlayButton {
 
       yield ctx.Lib.getState(
         ctx,
-        `adnm: ${btnSelector} not found/visible within ${timeoutMs}ms`
+        `adnm: no visible overlay trigger found within ${timeoutMs}ms`
       );
       return;
     }
 
     try {
-      btn.focus();
-      btn.click();
-      yield ctx.Lib.getState(ctx, `adnm: clicked ${btnSelector}`);
+      trigger.focus?.();
+      trigger.click();
+      yield ctx.Lib.getState(
+        ctx,
+        `adnm: clicked overlay trigger (${trigger.tagName.toLowerCase()}.${trigger.className})`
+      );
     } catch (e) {
-      // cleanup
       try {
         window.open = originalOpen;
       } catch (_) {}
@@ -147,14 +167,12 @@ class ClickAdnmOverlayButton {
       return;
     }
 
-    // Wait briefly for window.open to be called and URL captured
     const captureWaitMs = 2000;
     const captureStart = Date.now();
     while (!capturedUrl && Date.now() - captureStart < captureWaitMs) {
       await sleep(50);
     }
 
-    // cleanup
     try {
       window.open = originalOpen;
     } catch (_) {}
@@ -166,7 +184,6 @@ class ClickAdnmOverlayButton {
       if (finalUrl) {
         console.log("Decoded final URL:", finalUrl);
 
-        // Add as a link in your system
         try {
           ctx.Lib.addLink(finalUrl);
         } catch (_) {}
