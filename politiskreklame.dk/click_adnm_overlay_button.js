@@ -31,7 +31,7 @@ class ClickAdnmOverlayButton {
 
   async* run(ctx) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const btnSelector = "button.adnm-overlayButton";
+    const btnSelector = "button.adnm-overlayButton div.adnm-overlayNotice[role="button"]";
 
     // Extract the last URL starting at "https%3A%2F%2Fpolitiskreklame.dk" (or any https%3A%2F%2F...),
     // decode it into a real URL, and return it.
