@@ -54,8 +54,8 @@ class ScrollAndClick {
       }
 
       // scroll to bottom
-      window.scrollTo({ top: document.body.scrollHeight-200, behavior: "smooth" });
-      //window.scrollBy({ top: 400, behavior: "smooth" });
+      //window.scrollTo({ top: document.body.scrollHeight-200, behavior: "smooth" });
+      window.scrollBy({ top: 300, behavior: "smooth" });
       //document.querySelector("button.lc-load-more").scrollIntoView({ behavior: "smooth" });
       
       await new Promise(r => setTimeout(r, 1000));
