@@ -1,6 +1,6 @@
 class ScrollAndClick {
   static id = "Scroll and Click";
-  static maxScrolls = 500; // default maximum scroll iterations
+  static maxScrolls = 50; // default maximum scroll iterations
   selectors = [
     "a",
     "button",
