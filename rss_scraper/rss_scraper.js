@@ -35,7 +35,10 @@ class rss_scraper {
     document.documentElement?.outerHTML ||
     document.body?.innerText ||
     "";
-
+ctx.log({
+        msg: "Extracted raw XML",
+        raw,
+      });
   if (!raw.trim()) {
     console.error("No page source found.");
     return;
