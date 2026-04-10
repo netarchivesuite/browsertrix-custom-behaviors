@@ -30,46 +30,32 @@ class rss_scraper {
 
   async* run(ctx) {
     try {
-      const content = document.body?.innerText || "";
+        // Try to read the raw XML source from the current page
+  const raw =
+    document.documentElement?.outerHTML ||
+    document.body?.innerText ||
+    "";
 
-      if (!content) {
+  if (!raw.trim()) {
+    console.error("No page source found.");
+    return;
+  }
+
+  // Parse as XML
+  const xml = new DOMParser().parseFromString(raw, "application/xml");
+
+  // Detect XML parse errors
+  if (xml.querySelector("parsererror")) {
+    console.error("Failed to parse XML.", xml.querySelector("parsererror").textContent);
+    return;
+  }
+
+  // Extract all <item><link>...</link></item>
+  const links = Array.from(xml.querySelectorAll("item > link"))
+    .map(node => node.textContent.trim())
+    .filter(Boolean);
+
         ctx.log({
-          level: "warn",
-          msg: "RSS scrape found no body innerText content",
-          url: location.href,
-        });
-        return;
-      }
-
-      const itemBlocks = [...content.matchAll(/<item\b[\s\S]*?<\/item>/gi)].map((m) => m[0]);
-
-      if (itemBlocks.length === 0) {
-        ctx.log({
-          level: "warn",
-          msg: "RSS scrape found no <item> blocks",
-          url: location.href,
-        });
-        return;
-      }
-
-      const links = itemBlocks
-        .map((block, index) => {
-          const link = block.match(/<link>(.*?)<\/link>/i)?.[1]?.trim();
-
-          if (!link) {
-            ctx.log({
-              level: "warn",
-              msg: "RSS item missing <link>",
-              itemIndex: index,
-              url: location.href,
-            });
-          }
-
-          return link;
-        })
-        .filter(Boolean);
-
-      ctx.log({
         msg: "Extracted links array",
         count: links.length,
         links,
