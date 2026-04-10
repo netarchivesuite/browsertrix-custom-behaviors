@@ -29,10 +29,7 @@ class rss_scraper {
   static runInIframes = false;
 
   async* run(ctx) {
-  const raw =
-    document.documentElement?.outerHTML ||
-    document.body?.innerText ||
-    "";
+  const raw = "test";
 
     ctx.log({
         msg: "Extracted raw XML",
