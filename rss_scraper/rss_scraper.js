@@ -29,62 +29,17 @@ class rss_scraper {
   static runInIframes = false;
 
   async* run(ctx) {
-    try {
-        // Try to read the raw XML source from the current page
   const raw =
     document.documentElement?.outerHTML ||
     document.body?.innerText ||
     "";
-ctx.log({
+
+    ctx.log({
         msg: "Extracted raw XML",
         raw,
       });
-  if (!raw.trim()) {
-    console.error("No page source found.");
-    return;
-  }
+ 
 
-  // Parse as XML
-  const xml = new DOMParser().parseFromString(raw, "application/xml");
 
-  // Detect XML parse errors
-  if (xml.querySelector("parsererror")) {
-    console.error("Failed to parse XML.", xml.querySelector("parsererror").textContent);
-    return;
-  }
-
-  // Extract all <item><link>...</link></item>
-  const links = Array.from(xml.querySelectorAll("item > link"))
-    .map(node => node.textContent.trim())
-    .filter(Boolean);
-
-        ctx.log({
-        msg: "Extracted links array",
-        count: links.length,
-        links,
-      });
-
-      for (const link of links) {
-        try {
-          ctx.Lib.addLink(link);
-        } catch (error) {
-          ctx.log({
-            level: "error",
-            msg: "Failed to add extracted RSS link",
-            link,
-            error: error?.message || String(error),
-            url: location.href,
-          });
-        }
-      }
-    } catch (error) {
-      ctx.log({
-        level: "error",
-        msg: "Unhandled failure during RSS scrape",
-        error: error?.message || String(error),
-        stack: error?.stack,
-        url: location.href,
-      });
-    }
   }
 }
