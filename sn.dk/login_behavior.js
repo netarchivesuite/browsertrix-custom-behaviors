@@ -1,38 +1,22 @@
 class LogIndBehavior {
-  // required: an id for this behavior, will be displayed in the logs
   static id = "Custom Log Ind Login Behavior";
 
-  // required: decide if this behavior should run on the current page
   static isMatch() {
     return /https?:\/\/(?:www\.)?sn\.dk\/.*/.test(window.location.href);
-
-    // Example: exact URL match:
-    // return window.location.href === "https://my-site.example.com/";
-
-    // Example: regex URL match:
-    // return /my-site\.example\.com\/login/i.test(window.location.href);
   }
 
-  // required by Browsertrix behaviors
   static init() {
     return {};
   }
 
-  // Do NOT run inside iframes by default; avoids cross-origin issues
   static runInIframes = false;
 
-  // optional: custom page load completion logic
   async awaitPageLoad() {
-    // Could use ctx.Lib.waitUntil here if ctx was passed,
-    // or rely on default load handling. Leaving as no-op.
     return;
   }
 
-  // required: main behavior async iterator
   async *run(ctx) {
     const Lib = (ctx && ctx.Lib) ? ctx.Lib : {};
-
-    // ---------- Helper functions (all inside run, no globals) ----------
 
     function normalizeText(str) {
       if (!str) return "";
@@ -43,33 +27,20 @@ class LogIndBehavior {
       if (!elem) return false;
       if (elem.disabled) return false;
       const ariaDisabled = elem.getAttribute("aria-disabled");
-      if (ariaDisabled && ariaDisabled.toString().toLowerCase() === "true") {
-        return false;
-      }
-      return true;
+      return !(ariaDisabled && ariaDisabled.toString().toLowerCase() === "true");
     }
 
     function isInViewport(elem) {
       try {
         if (!elem) return false;
-
-        // Prefer Browsertrix utility if available
-        if (Lib && typeof Lib.isInViewport === "function") {
-          return Lib.isInViewport(elem);
-        }
+        if (Lib && typeof Lib.isInViewport === "function") return Lib.isInViewport(elem);
 
         const rect = elem.getBoundingClientRect();
-        const vw = (window.innerWidth || document.documentElement.clientWidth);
-        const vh = (window.innerHeight || document.documentElement.clientHeight);
+        const vw = window.innerWidth || document.documentElement.clientWidth;
+        const vh = window.innerHeight || document.documentElement.clientHeight;
 
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          rect.top < vh &&
-          rect.bottom > 0 &&
-          rect.left < vw &&
-          rect.right > 0
-        );
+        return rect.width > 0 && rect.height > 0 && rect.top < vh &&
+          rect.bottom > 0 && rect.left < vw && rect.right > 0;
       } catch (e) {
         return false;
       }
@@ -94,11 +65,7 @@ class LogIndBehavior {
             elem.scrollIntoView({ behavior: "smooth", block: "center" });
           }
         } catch (e) {
-          ctx.log({
-            level: "warn",
-            msg: `safeClick: scrollIntoView error for ${label}`,
-            error: e && e.message
-          });
+          ctx.log({ level: "warn", msg: `safeClick: scrollIntoView error for ${label}`, error: e && e.message });
         }
       }
 
@@ -110,54 +77,38 @@ class LogIndBehavior {
         }
         ctx.log({ level: "info", msg: `Clicked element: ${label}` });
       } catch (e) {
-        ctx.log({
-          level: "error",
-          msg: `safeClick: click error for ${label}`,
-          error: e && e.message
-        });
+        ctx.log({ level: "error", msg: `safeClick: click error for ${label}`, error: e && e.message });
       }
     }
 
     async function sleep(ms) {
-      if (Lib && typeof Lib.sleep === "function") {
-        return Lib.sleep(ms);
-      }
+      if (Lib && typeof Lib.sleep === "function") return Lib.sleep(ms);
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    // Traverse document + any open shadow roots
     function querySelectorAllDeep(selector) {
       const results = [];
 
       function collectFromRoot(root) {
         try {
           const elems = root.querySelectorAll(selector);
-          for (const el of elems) {
-            results.push(el);
-          }
-        } catch (e) {
-          // ignore individual root errors
-        }
+          for (const el of elems) results.push(el);
+        } catch (e) {}
 
-        // recurse into open shadow roots
         try {
           const all = root.querySelectorAll("*");
           for (const node of all) {
-            if (node && node.shadowRoot) {
-              collectFromRoot(node.shadowRoot);
-            }
+            if (node && node.shadowRoot) collectFromRoot(node.shadowRoot);
           }
-        } catch (e) {
-          // ignore if cannot traverse further
-        }
+        } catch (e) {}
       }
 
       collectFromRoot(document);
       return results;
     }
 
-    function findLoginLink() {
-      const targetText = normalizeText("Log ind");
+    function findLinkByExactText(textToFind) {
+      const targetText = normalizeText(textToFind);
       const links = querySelectorAllDeep("a.service-menu__link, a");
 
       for (const link of links) {
@@ -178,50 +129,39 @@ class LogIndBehavior {
       return null;
     }
 
+    function findLoginLink() {
+      return findLinkByExactText("Log ind");
+    }
+
+    function findLogoutLink() {
+      return findLinkByExactText("Log ud");
+    }
+
     async function waitForVisibleSelector(selector, timeoutMs) {
       const timeout = typeof timeoutMs === "number" ? timeoutMs : 10000;
       const start = Date.now();
 
-      // If Lib.waitUntilNode exists, we can use it as a first pass
       if (Lib && typeof Lib.waitUntilNode === "function") {
         try {
           const node = await Lib.waitUntilNode(selector, timeout);
-          if (node && isInViewport(node) && isEnabled(node)) {
-            return node;
-          }
+          if (node && isInViewport(node) && isEnabled(node)) return node;
         } catch (e) {
-          // fall through to manual loop
-          ctx.log({
-            level: "warn",
-            msg: `waitUntilNode failed for selector: ${selector}`,
-            error: e && e.message
-          });
+          ctx.log({ level: "warn", msg: `waitUntilNode failed for selector: ${selector}`, error: e && e.message });
         }
       }
 
-      // Manual polling loop
       while (Date.now() - start < timeout) {
         try {
           const candidates = querySelectorAllDeep(selector);
           for (const el of candidates) {
             const style = window.getComputedStyle(el);
-            const visible =
-              style &&
-              style.display !== "none" &&
-              style.visibility !== "hidden" &&
-              isInViewport(el) &&
-              isEnabled(el);
+            const visible = style && style.display !== "none" &&
+              style.visibility !== "hidden" && isInViewport(el) && isEnabled(el);
 
-            if (visible) {
-              return el;
-            }
+            if (visible) return el;
           }
         } catch (e) {
-          ctx.log({
-            level: "warn",
-            msg: `Error during waitForVisibleSelector(${selector}) iteration`,
-            error: e && e.message
-          });
+          ctx.log({ level: "warn", msg: `Error during waitForVisibleSelector(${selector}) iteration`, error: e && e.message });
         }
 
         await sleep(250);
@@ -230,17 +170,24 @@ class LogIndBehavior {
       return null;
     }
 
-    // ---------- Main behavior logic ----------
-
     try {
-      yield { msg: "Starting LogIndBehavior: locating 'Log ind' link" };
+      yield { msg: "Starting LogIndBehavior: checking for 'Log ud' link first" };
+
+      const logoutLink = findLogoutLink();
+      if (logoutLink) {
+        ctx.log({
+          level: "info",
+          msg: "'Log ud' link found; user is already logged in, skipping behavior"
+        });
+        yield { msg: "'Log ud' link found; behavior skipped" };
+        return;
+      }
+
+      yield { msg: "No 'Log ud' link found; locating 'Log ind' link" };
 
       const loginLink = findLoginLink();
       if (!loginLink) {
-        ctx.log({
-          level: "warn",
-          msg: "No 'Log ind' link found on page"
-        });
+        ctx.log({ level: "warn", msg: "No 'Log ind' link found on page" });
         yield { msg: "No 'Log ind' link found; behavior finished" };
         return;
       }
@@ -248,10 +195,8 @@ class LogIndBehavior {
       yield { msg: "'Log ind' link found; attempting click" };
       await safeClick(loginLink, "'Log ind' link");
 
-      // Give popup some time to appear
       await sleep(500);
 
-      // Wait for email and password inputs to be visible
       yield { msg: "Waiting for email and password fields to appear" };
       const emailInput = await waitForVisibleSelector("#email", 15000);
       const passwordInput = await waitForVisibleSelector("#password", 15000);
@@ -267,47 +212,32 @@ class LogIndBehavior {
         return;
       }
 
-      // Fill email
       try {
         emailInput.focus();
-      } catch (e) {
-        // ignore focus errors
-      }
+      } catch (e) {}
 
       try {
         emailInput.value = "[sn.dk_username]";
         emailInput.dispatchEvent(new Event("input", { bubbles: true }));
         emailInput.dispatchEvent(new Event("change", { bubbles: true }));
       } catch (e) {
-        ctx.log({
-          level: "error",
-          msg: "Error setting email value",
-          error: e && e.message
-        });
+        ctx.log({ level: "error", msg: "Error setting email value", error: e && e.message });
       }
 
-      // Fill password
       try {
         passwordInput.focus();
-      } catch (e) {
-        // ignore focus errors
-      }
+      } catch (e) {}
 
       try {
         passwordInput.value = "[sn.dk_password]";
         passwordInput.dispatchEvent(new Event("input", { bubbles: true }));
         passwordInput.dispatchEvent(new Event("change", { bubbles: true }));
       } catch (e) {
-        ctx.log({
-          level: "error",
-          msg: "Error setting password value",
-          error: e && e.message
-        });
+        ctx.log({ level: "error", msg: "Error setting password value", error: e && e.message });
       }
 
       yield { msg: "Filled email and password fields" };
 
-      // Find submit button: <input type="submit" value="Log ind">
       const submitCandidates = querySelectorAllDeep('input[type="submit"], button[type="submit"], button');
       let submitButton = null;
       const targetSubmitText = normalizeText("Log ind");
@@ -317,20 +247,15 @@ class LogIndBehavior {
 
         const value = btn.getAttribute("value");
         const text = btn.textContent || btn.innerText;
-        const cand1 = normalizeText(value);
-        const cand2 = normalizeText(text);
 
-        if (cand1 === targetSubmitText || cand2 === targetSubmitText) {
+        if (normalizeText(value) === targetSubmitText || normalizeText(text) === targetSubmitText) {
           submitButton = btn;
           break;
         }
       }
 
       if (!submitButton) {
-        ctx.log({
-          level: "warn",
-          msg: "Submit button with value/text 'Log ind' not found"
-        });
+        ctx.log({ level: "warn", msg: "Submit button with value/text 'Log ind' not found" });
         yield { msg: "Submit button not found; behavior finished" };
         return;
       }
