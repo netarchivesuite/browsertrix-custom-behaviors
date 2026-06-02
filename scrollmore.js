@@ -19,6 +19,7 @@ class ScrollAndClick {
     "hent flere",
     "vis flere",
     "tillad alle",
+    "Indlæs mere",
     "Tidligere opslag"
   ].map(t => t.toLowerCase());
 
