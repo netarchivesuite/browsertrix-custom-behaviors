@@ -20,7 +20,8 @@ class ScrollAndClick {
     "vis flere",
     "tillad alle",
     "Indlæs mere",
-    "Tidligere opslag"
+    "Tidligere opslag",
+    "Indlæs flere"
   ].map(t => t.toLowerCase());
 
   static isMatch(url) {
