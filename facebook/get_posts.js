@@ -11,7 +11,7 @@ class GetFacebookPosts {
       return false;
     }
   }
-
+ 
   static init() {
     return {};
   }
