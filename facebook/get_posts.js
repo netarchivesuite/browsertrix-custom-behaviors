@@ -1,7 +1,6 @@
 class GetFacebookPosts {
   static id = "Get facebook posts";
   static runInIframes = false;
-
   static maxPosts = 20;
 
   static config = {
@@ -15,7 +14,11 @@ class GetFacebookPosts {
   };
 
   static isMatch(url) {
-    return /(^|\.)facebook\.com$/i.test(new URL(url).hostname);
+    try {
+      return /(^|\.)facebook\.com$/i.test(new URL(url).hostname);
+    } catch {
+      return false;
+    }
   }
 
   static init() {
@@ -66,13 +69,9 @@ class GetFacebookPosts {
   }
 
   async addUrl(found, addedToCrawl, url, ctx) {
-    if (!url || found.has(url)) {
-      return false;
-    }
-
-    if (found.size >= GetFacebookPosts.maxPosts) {
-      return false;
-    }
+    if (!url) return false;
+    if (found.has(url)) return false;
+    if (found.size >= GetFacebookPosts.maxPosts) return false;
 
     found.add(url);
 
@@ -86,20 +85,28 @@ class GetFacebookPosts {
     if (!addedToCrawl.has(url)) {
       addedToCrawl.add(url);
 
-      await ctx.Lib.addLink(url);
+      try {
+        await ctx.Lib.addLink(url);
 
-      ctx.log({
-        msg: "Added Facebook post URL to crawl",
-        url,
-        totalAddedToCrawl: addedToCrawl.size
-      });
+        ctx.log({
+          msg: "Submitted Facebook post URL to crawl scope",
+          url,
+          totalSubmitted: addedToCrawl.size
+        });
+      } catch (err) {
+        ctx.log({
+          msg: "Failed to submit Facebook post URL to crawl scope",
+          url,
+          error: err && err.message ? err.message : String(err)
+        });
+      }
     }
 
     return true;
   }
 
   async collectPostUrlsFromAnchors(found, addedToCrawl, ctx) {
-    const newUrls = [];
+    let addedThisScan = 0;
 
     for (const a of document.querySelectorAll("a[href]")) {
       if (found.size >= GetFacebookPosts.maxPosts) break;
@@ -111,11 +118,11 @@ class GetFacebookPosts {
       const added = await this.addUrl(found, addedToCrawl, clean, ctx);
 
       if (added) {
-        newUrls.push(clean);
+        addedThisScan++;
       }
     }
 
-    return newUrls;
+    return addedThisScan;
   }
 
   getHoverTargets(hovered) {
@@ -244,6 +251,7 @@ class GetFacebookPosts {
       msg: "Scan complete",
       added,
       totalFound: found.size,
+      totalSubmitted: addedToCrawl.size,
       maxPosts: GetFacebookPosts.maxPosts
     });
 
@@ -274,7 +282,8 @@ class GetFacebookPosts {
     ctx.log({
       msg: "Feed settle check complete",
       stableRounds,
-      totalFound: found.size
+      totalFound: found.size,
+      totalSubmitted: addedToCrawl.size
     });
   }
 
@@ -331,6 +340,7 @@ class GetFacebookPosts {
         beforeCount,
         afterCount,
         added: afterCount - beforeCount,
+        totalSubmitted: addedToCrawl.size,
         nearBottom,
         noScrollMovement,
         heightDidNotGrow,
@@ -369,7 +379,8 @@ class GetFacebookPosts {
       msg: "Facebook post collector finished",
       reason: "Reached max post limit",
       totalFound: found.size,
-      totalAddedToCrawl: addedToCrawl.size
+      totalSubmitted: addedToCrawl.size,
+      urls: [...found]
     });
   }
 }
