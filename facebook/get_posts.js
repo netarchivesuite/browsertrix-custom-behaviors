@@ -1,5 +1,5 @@
 class GetFacebookPosts {
-  static id = "Get facebook posts";
+  static id = "Get facebook posts2";
   static description = "Find Facebook post URLs, add them to the crawl queue, and stop after 20 posts.";
   static maxPosts = 20;
   static runInIframes = false;
