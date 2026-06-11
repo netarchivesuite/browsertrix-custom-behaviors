@@ -5,7 +5,7 @@ class GetFacebookPosts {
   static runInIframes = false;
 
   static isMatch(url) {
-    return /(^|\.)facebook\.com/i.test(new URL(url).hostname);
+    return /(^|\.)facebook\.com$/i.test(new URL(url).hostname);
   }
 
   static init() {
@@ -22,8 +22,8 @@ class GetFacebookPosts {
     this.config = {
       scrollStep: () => Math.max(450, Math.floor(window.innerHeight * 0.75)),
       scrollDelay: 1400,
-      hoverDelay: 550,
-      hoverBetweenDelay: 250,
+      hoverDelay: 700,
+      hoverBetweenDelay: 300,
       maxHoverPerScan: 12,
       settleDelay: 700,
       endNoNewRounds: 8,
@@ -126,52 +126,91 @@ class GetFacebookPosts {
       );
   }
 
-  async firePointerAndMouseEvents(el) {
+  async firePointerAndMouseEvents(ctx, el) {
+    if (!this.isVisible(el)) return false;
+
+    // Keep the hover target centered and stable before moving the mouse.
+    el.scrollIntoView({
+      block: "center",
+      inline: "center",
+      behavior: "instant"
+    });
+
+    await this.sleep(150);
+
     if (!this.isVisible(el)) return false;
 
     const r = el.getBoundingClientRect();
     const x = Math.floor(r.left + r.width / 2);
     const y = Math.floor(r.top + r.height / 2);
 
-    const pointerInit = {
+    /*
+     * Preferred hover method:
+     * Use Browsertrix/Playwright's real browser-level mouse movement.
+     * This works better in Brave/Chromium than synthetic DOM events.
+     */
+    try {
+      if (ctx.page?.mouse) {
+        ctx.log({
+          msg: "Hovering Facebook target using Playwright mouse.move",
+          x,
+          y
+        });
+
+        await ctx.page.mouse.move(x, y, { steps: 12 });
+        await this.sleep(this.config.hoverDelay);
+
+        return true;
+      }
+    } catch (err) {
+      ctx.log({
+        msg: "Playwright mouse.move hover failed; falling back to DOM events",
+        error: String(err)
+      });
+    }
+
+    /*
+     * Fallback hover method:
+     * Dispatch synthetic pointer and mouse events.
+     * These are not trusted events, but can still trigger some handlers.
+     */
+    const eventInit = {
       bubbles: true,
       cancelable: true,
       composed: true,
       view: window,
-      pointerId: 1,
-      pointerType: "mouse",
-      isPrimary: true,
       clientX: x,
       clientY: y,
       screenX: window.screenX + x,
       screenY: window.screenY + y
     };
 
-    const mouseInit = {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      view: window,
-      clientX: x,
-      clientY: y,
-      screenX: window.screenX + x,
-      screenY: window.screenY + y
+    const pointerInit = {
+      ...eventInit,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      buttons: 0,
+      button: 0,
+      pressure: 0
     };
 
     const events = [
       ["pointerover", PointerEvent, pointerInit],
-      ["mouseover", MouseEvent, mouseInit],
       ["pointerenter", PointerEvent, pointerInit],
-      ["mouseenter", MouseEvent, mouseInit],
+      ["mouseover", MouseEvent, eventInit],
+      ["mouseenter", MouseEvent, eventInit],
       ["pointermove", PointerEvent, pointerInit],
-      ["mousemove", MouseEvent, mouseInit]
+      ["mousemove", MouseEvent, eventInit],
+      ["mouseover", MouseEvent, eventInit],
+      ["mousemove", MouseEvent, eventInit]
     ];
 
     for (const [type, EventCtor, init] of events) {
       if (!document.contains(el) || !this.isVisible(el)) return false;
 
       el.dispatchEvent(new EventCtor(type, init));
-      await this.sleep(80);
+      await this.sleep(90);
     }
 
     await this.sleep(this.config.hoverDelay);
@@ -190,7 +229,7 @@ class GetFacebookPosts {
       this.hovered.add(target);
 
       const before = target.getAttribute("href");
-      const ok = await this.firePointerAndMouseEvents(target);
+      const ok = await this.firePointerAndMouseEvents(ctx, target);
 
       await this.sleep(this.config.hoverBetweenDelay);
 
