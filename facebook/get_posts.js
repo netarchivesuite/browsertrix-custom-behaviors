@@ -2,7 +2,7 @@ class GetFacebookPosts {
   static id = "Get facebook posts";
   static runInIframes = false;
 
-  static maxPosts = 5;
+  static maxPosts = 20;
 
   static config = {
     scrollDelay: 1400,
@@ -15,7 +15,7 @@ class GetFacebookPosts {
   };
 
   static isMatch(url) {
-    return /(^|\.)facebook\.com/i.test(new URL(url).hostname);
+    return /(^|\.)facebook\.com$/i.test(new URL(url).hostname);
   }
 
   static init() {
@@ -65,7 +65,40 @@ class GetFacebookPosts {
     }
   }
 
-  collectPostUrlsFromAnchors(found, ctx) {
+  async addUrl(found, addedToCrawl, url, ctx) {
+    if (!url || found.has(url)) {
+      return false;
+    }
+
+    if (found.size >= GetFacebookPosts.maxPosts) {
+      return false;
+    }
+
+    found.add(url);
+
+    ctx.log({
+      msg: "Found Facebook post URL",
+      url,
+      totalFound: found.size,
+      maxPosts: GetFacebookPosts.maxPosts
+    });
+
+    if (!addedToCrawl.has(url)) {
+      addedToCrawl.add(url);
+
+      await ctx.Lib.addLink(url);
+
+      ctx.log({
+        msg: "Added Facebook post URL to crawl",
+        url,
+        totalAddedToCrawl: addedToCrawl.size
+      });
+    }
+
+    return true;
+  }
+
+  async collectPostUrlsFromAnchors(found, addedToCrawl, ctx) {
     const newUrls = [];
 
     for (const a of document.querySelectorAll("a[href]")) {
@@ -73,17 +106,13 @@ class GetFacebookPosts {
       if (!this.isVisible(a)) continue;
 
       const clean = this.cleanPostUrl(a.href);
-      if (!clean || found.has(clean)) continue;
+      if (!clean) continue;
 
-      found.add(clean);
-      newUrls.push(clean);
+      const added = await this.addUrl(found, addedToCrawl, clean, ctx);
 
-      ctx.log({
-        msg: "Found Facebook post URL",
-        url: clean,
-        totalFound: found.size,
-        maxPosts: GetFacebookPosts.maxPosts
-      });
+      if (added) {
+        newUrls.push(clean);
+      }
     }
 
     return newUrls;
@@ -140,7 +169,10 @@ class GetFacebookPosts {
     ];
 
     for (const [type, EventCtor, init] of events) {
-      if (!document.contains(el) || !this.isVisible(el)) return false;
+      if (!document.contains(el) || !this.isVisible(el)) {
+        return false;
+      }
+
       el.dispatchEvent(new EventCtor(type, init));
       await this.sleep(80);
     }
@@ -149,7 +181,7 @@ class GetFacebookPosts {
     return true;
   }
 
-  async hoverVisibleTargets(found, hovered, ctx) {
+  async hoverVisibleTargets(found, addedToCrawl, hovered, ctx) {
     let hoveredCount = 0;
 
     for (let i = 0; i < GetFacebookPosts.config.maxHoverPerScan; i++) {
@@ -177,15 +209,8 @@ class GetFacebookPosts {
         ? this.cleanPostUrl(new URL(after, location.href).href)
         : null;
 
-      if (cleanAfter && !found.has(cleanAfter)) {
-        found.add(cleanAfter);
-
-        ctx.log({
-          msg: "Found Facebook post URL after hover",
-          url: cleanAfter,
-          totalFound: found.size,
-          maxPosts: GetFacebookPosts.maxPosts
-        });
+      if (cleanAfter) {
+        await this.addUrl(found, addedToCrawl, cleanAfter, ctx);
       }
 
       if (before !== after) {
@@ -196,21 +221,21 @@ class GetFacebookPosts {
         });
       }
 
-      this.collectPostUrlsFromAnchors(found, ctx);
+      await this.collectPostUrlsFromAnchors(found, addedToCrawl, ctx);
     }
 
     return hoveredCount;
   }
 
-  async scan(found, hovered, ctx) {
+  async scan(found, addedToCrawl, hovered, ctx) {
     const beforeCount = found.size;
 
-    this.collectPostUrlsFromAnchors(found, ctx);
+    await this.collectPostUrlsFromAnchors(found, addedToCrawl, ctx);
 
     if (found.size < GetFacebookPosts.maxPosts) {
-      await this.hoverVisibleTargets(found, hovered, ctx);
+      await this.hoverVisibleTargets(found, addedToCrawl, hovered, ctx);
       await this.sleep(GetFacebookPosts.config.settleDelay);
-      this.collectPostUrlsFromAnchors(found, ctx);
+      await this.collectPostUrlsFromAnchors(found, addedToCrawl, ctx);
     }
 
     const added = found.size - beforeCount;
@@ -225,7 +250,7 @@ class GetFacebookPosts {
     return added;
   }
 
-  async waitForFeedToSettle(found, hovered, ctx) {
+  async waitForFeedToSettle(found, addedToCrawl, hovered, ctx) {
     let stableRounds = 0;
     let lastHeight = document.body.scrollHeight;
 
@@ -236,7 +261,7 @@ class GetFacebookPosts {
       const visibleLoaders = [...document.querySelectorAll('[role="progressbar"], [aria-busy="true"]')]
         .filter(el => this.isVisible(el));
 
-      await this.scan(found, hovered, ctx);
+      await this.scan(found, addedToCrawl, hovered, ctx);
 
       if (currentHeight !== lastHeight || visibleLoaders.length) {
         stableRounds = 0;
@@ -253,25 +278,9 @@ class GetFacebookPosts {
     });
   }
 
-  async addFoundLinksToCrawl(found, ctx) {
-    const urls = [...found];
-
-    ctx.log({
-      msg: "Adding discovered Facebook post URLs to crawl",
-      count: urls.length
-    });
-
-    for (const url of urls) {
-      await ctx.Lib.addLink(url);
-      ctx.log({
-        msg: "Added URL to crawl",
-        url
-      });
-    }
-  }
-
   async* run(ctx) {
     const found = new Set();
+    const addedToCrawl = new Set();
     const hovered = new WeakSet();
 
     let noNewRounds = 0;
@@ -282,14 +291,14 @@ class GetFacebookPosts {
       maxPosts: GetFacebookPosts.maxPosts
     });
 
-    await this.scan(found, hovered, ctx);
+    await this.scan(found, addedToCrawl, hovered, ctx);
 
     while (found.size < GetFacebookPosts.maxPosts) {
       const beforeY = window.scrollY;
       const beforeHeight = document.body.scrollHeight;
       const beforeCount = found.size;
 
-      await this.scan(found, hovered, ctx);
+      await this.scan(found, addedToCrawl, hovered, ctx);
 
       window.scrollBy({
         top: this.scrollStep(),
@@ -297,7 +306,7 @@ class GetFacebookPosts {
       });
 
       await this.sleep(GetFacebookPosts.config.scrollDelay);
-      await this.scan(found, hovered, ctx);
+      await this.scan(found, addedToCrawl, hovered, ctx);
 
       const afterY = window.scrollY;
       const afterHeight = document.body.scrollHeight;
@@ -332,7 +341,7 @@ class GetFacebookPosts {
         found.size < GetFacebookPosts.maxPosts &&
         (nearBottom || noScrollMovement || heightDidNotGrow || noNewLinks)
       ) {
-        await this.waitForFeedToSettle(found, hovered, ctx);
+        await this.waitForFeedToSettle(found, addedToCrawl, hovered, ctx);
       }
 
       if (noNewRounds >= GetFacebookPosts.config.endNoNewRounds) {
@@ -343,11 +352,11 @@ class GetFacebookPosts {
 
         window.scrollBy({ top: 180, behavior: "smooth" });
         await this.sleep(600);
-        await this.scan(found, hovered, ctx);
+        await this.scan(found, addedToCrawl, hovered, ctx);
 
         window.scrollBy({ top: -120, behavior: "smooth" });
         await this.sleep(600);
-        await this.scan(found, hovered, ctx);
+        await this.scan(found, addedToCrawl, hovered, ctx);
 
         window.scrollBy({ top: this.scrollStep(), behavior: "smooth" });
         await this.sleep(GetFacebookPosts.config.scrollDelay);
@@ -357,13 +366,10 @@ class GetFacebookPosts {
     }
 
     ctx.log({
-      msg: "Stopping Facebook post collector",
-      reason: found.size >= GetFacebookPosts.maxPosts
-        ? "Reached max post limit"
-        : "Collector ended",
-      totalFound: found.size
+      msg: "Facebook post collector finished",
+      reason: "Reached max post limit",
+      totalFound: found.size,
+      totalAddedToCrawl: addedToCrawl.size
     });
-
-    await this.addFoundLinksToCrawl(found, ctx);
   }
 }
