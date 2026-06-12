@@ -29,7 +29,20 @@ class LogIndBehavior {
       const ariaDisabled = elem.getAttribute("aria-disabled");
       return !(ariaDisabled && ariaDisabled.toString().toLowerCase() === "true");
     }
-
+    
+    function isVisible(element) {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+    
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        style.opacity !== "0" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    }
+    
     function isInViewport(elem) {
       try {
         if (!elem) return false;
@@ -120,7 +133,10 @@ class LogIndBehavior {
         ];
 
         for (const candidate of labelCandidates) {
-          if (normalizeText(candidate) === targetText && isEnabled(link)) {
+          if (normalizeText(candidate) === targetText &&
+          isEnabled(link) &&
+          isVisible(link)
+             ) {
             return link;
           }
         }
