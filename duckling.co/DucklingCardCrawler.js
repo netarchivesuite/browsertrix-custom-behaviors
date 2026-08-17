@@ -34,32 +34,30 @@ class DucklingCardCrawlerBehavior {
         const CARD_SELECTOR =
             ".card.relative.overflow-hidden.rounded-lg.hover\\:cursor-pointer";
 
+        // Scroll the feed for 30 seconds to trigger lazy loading.
         const SCROLL_TIME = 30000;
         const SCROLL_INTERVAL = 800;
 
-        const DETAIL_WAIT = 3000;
-        const BACK_WAIT = 5000;
+        // After a card page has fully loaded, remain there for 20 seconds.
+        const DETAIL_WAIT = 20000;
 
+        // Extra settling time after returning to the overview.
+        const BACK_WAIT = 1500;
+
+        // Maximum time to wait for navigation/state changes.
         const NAV_TIMEOUT = 15000;
+
+        // Extra settling time after switching to Community.
         const COMMUNITY_LOAD_WAIT = 3000;
 
-        /*
-         * Duckling currently has Editorial + Community.
-         * We therefore switch to Community once after Editorial
-         * has been exhausted.
-         */
+        // We start in Editorial, then switch to Community once.
         const MAX_COMMUNITY_CLICKS = 1;
 
-        /*
-         * Stores stable identities of cards already visited.
-         * This remains alive throughout this behavior run.
-         */
+        // Keep track of all cards visited during this behavior run.
         const visitedCards = new Set();
 
         /*
-         * --------------------------------------------------
-         * Helper: wait for arbitrary condition
-         * --------------------------------------------------
+         * Wait until predicate() becomes true or timeout expires.
          */
         async function waitFor(predicate, timeout = NAV_TIMEOUT) {
             const start = Date.now();
@@ -70,7 +68,7 @@ class DucklingCardCrawlerBehavior {
                         return true;
                     }
                 } catch (_) {
-                    // DOM may temporarily be changing
+                    // DOM may temporarily be changing.
                 }
 
                 await sleep(100);
@@ -80,13 +78,11 @@ class DucklingCardCrawlerBehavior {
         }
 
         /*
-         * --------------------------------------------------
-         * Helper: stable card ID
+         * Generate a stable ID for a card.
          *
-         * Google Storage URLs are signed and their query
-         * parameters change, so only origin + pathname
-         * are used.
-         * --------------------------------------------------
+         * Duckling image URLs use signed Google Storage query
+         * parameters which can change, so only origin + pathname
+         * are used from the image URL.
          */
         function getCardKey(card) {
             const image =
@@ -108,31 +104,41 @@ class DucklingCardCrawlerBehavior {
             if (image && image.src) {
                 try {
                     const url = new URL(image.src);
-                    imageUrl = url.origin + url.pathname;
+
+                    imageUrl =
+                        url.origin +
+                        url.pathname;
                 } catch (_) {
-                    imageUrl = image.src.split("?")[0];
+                    imageUrl =
+                        image.src.split("?")[0];
                 }
             }
 
             return [
                 imageUrl,
                 profile || "",
-                heading ? heading.textContent.trim() : ""
+                heading
+                    ? heading.textContent.trim()
+                    : ""
             ].join("|");
         }
 
         /*
-         * --------------------------------------------------
-         * Helper: find first card not yet visited
-         * --------------------------------------------------
+         * Find the first card which has not yet been visited.
+         *
+         * The DOM is queried again every time because Vue may
+         * reconstruct the feed after navigation.
          */
         function findNextCard() {
             const cards = Array.from(
-                document.querySelectorAll(CARD_SELECTOR)
+                document.querySelectorAll(
+                    CARD_SELECTOR
+                )
             );
 
             for (const card of cards) {
-                const key = getCardKey(card);
+                const key =
+                    getCardKey(card);
 
                 if (!visitedCards.has(key)) {
                     return {
@@ -146,14 +152,9 @@ class DucklingCardCrawlerBehavior {
         }
 
         /*
-         * --------------------------------------------------
-         * Helper: find Community button
-         * --------------------------------------------------
+         * Locate the Community button.
          */
         function findCommunityButton() {
-            /*
-             * First try the classes supplied from Duckling.
-             */
             const candidates = Array.from(
                 document.querySelectorAll(
                     "button.bg-transparent.text-duckling_black.flex-1.rounded-full.py-4.text-lg.font-semibold.transition-colors"
@@ -162,21 +163,27 @@ class DucklingCardCrawlerBehavior {
 
             let button = candidates.find(
                 element =>
-                    (element.textContent || "").trim() ===
-                    "Community"
+                    (element.textContent || "")
+                        .trim()
+                        .toLowerCase() ===
+                    "community"
             );
 
             /*
-             * Fallback in case Tailwind classes change slightly.
+             * Fallback in case Duckling changes some
+             * Tailwind classes.
              */
             if (!button) {
                 button = Array.from(
-                    document.querySelectorAll("button")
+                    document.querySelectorAll(
+                        "button"
+                    )
                 ).find(
                     element =>
                         (element.textContent || "")
                             .trim()
-                            .toLowerCase() === "community"
+                            .toLowerCase() ===
+                        "community"
                 );
             }
 
@@ -184,16 +191,15 @@ class DucklingCardCrawlerBehavior {
         }
 
         /*
-         * --------------------------------------------------
-         * Helper: signature of currently displayed cards
-         *
-         * Used to detect an SPA update where URL does not
-         * change.
-         * --------------------------------------------------
+         * Build a small signature from the currently visible
+         * cards. This lets us detect SPA changes even if the
+         * URL remains unchanged.
          */
         function getCardSignature() {
             return Array.from(
-                document.querySelectorAll(CARD_SELECTOR)
+                document.querySelectorAll(
+                    CARD_SELECTOR
+                )
             )
                 .slice(0, 10)
                 .map(getCardKey)
@@ -201,40 +207,49 @@ class DucklingCardCrawlerBehavior {
         }
 
         /*
-         * --------------------------------------------------
-         * 30 second infinite-scroll pass
-         * --------------------------------------------------
+         * Scroll repeatedly to the bottom for 30 seconds.
          */
         async function scrollFor30Seconds() {
-            const start = Date.now();
+            const start =
+                Date.now();
 
-            while (Date.now() - start < SCROLL_TIME) {
+            while (
+                Date.now() - start <
+                SCROLL_TIME
+            ) {
                 window.scrollTo({
-                    top: document.documentElement.scrollHeight,
+                    top:
+                        document.documentElement
+                            .scrollHeight,
                     behavior: "smooth"
                 });
 
-                await sleep(SCROLL_INTERVAL);
+                await sleep(
+                    SCROLL_INTERVAL
+                );
             }
 
             /*
-             * One final bottom position.
+             * Make one final jump to the absolute bottom.
              */
             window.scrollTo({
-                top: document.documentElement.scrollHeight,
+                top:
+                    document.documentElement
+                        .scrollHeight,
                 behavior: "instant"
             });
 
             /*
-             * Give final lazy-loaded cards a little time.
+             * Give the final lazy-loaded content time
+             * to appear.
              */
             await sleep(2000);
         }
 
         /*
-         * --------------------------------------------------
+         * ==================================================
          * START
-         * --------------------------------------------------
+         * ==================================================
          */
 
         yield getState(
@@ -248,7 +263,7 @@ class DucklingCardCrawlerBehavior {
         while (true) {
             /*
              * ==============================================
-             * LOAD ALL CARDS IN CURRENT SECTION
+             * SCROLL CURRENT FEED FOR 30 SECONDS
              * ==============================================
              */
 
@@ -262,34 +277,44 @@ class DucklingCardCrawlerBehavior {
             yield getState(
                 ctx,
                 `Finished scroll in ${phase}; ` +
-                `${document.querySelectorAll(CARD_SELECTOR).length} cards currently in DOM`,
+                    `${
+                        document.querySelectorAll(
+                            CARD_SELECTOR
+                        ).length
+                    } cards currently in DOM`,
                 "scrollPasses"
             );
 
             /*
              * ==============================================
-             * VISIT EVERY NEW CARD
+             * VISIT ALL UNVISITED CARDS
              * ==============================================
              */
 
             while (true) {
-                const next = findNextCard();
+                const next =
+                    findNextCard();
 
                 if (!next) {
                     break;
                 }
 
-                const { card, key } = next;
+                const {
+                    card,
+                    key
+                } = next;
 
                 /*
-                 * Mark before click so a navigation problem
-                 * doesn't cause the same card to be repeatedly
-                 * clicked.
+                 * Mark the card as visited before clicking.
+                 *
+                 * This prevents repeatedly clicking a card
+                 * if navigation fails.
                  */
                 visitedCards.add(key);
 
                 const cardNumber =
-                    ctx.state.cardsClicked + 1;
+                    ctx.state.cardsClicked +
+                    1;
 
                 card.scrollIntoView({
                     behavior: "smooth",
@@ -302,7 +327,8 @@ class DucklingCardCrawlerBehavior {
                 const overviewUrl =
                     window.location.href;
 
-                const oldCard = card;
+                const oldCard =
+                    card;
 
                 yield getState(
                     ctx,
@@ -311,30 +337,34 @@ class DucklingCardCrawlerBehavior {
 
                 /*
                  * ==========================================
-                 * OPEN CARD
+                 * CLICK CARD
                  * ==========================================
                  */
 
                 card.click();
 
                 /*
-                 * Duckling is a Vue SPA. Usually the URL
-                 * changes. As fallback, also accept the
-                 * original card being detached from DOM.
+                 * Detect navigation.
+                 *
+                 * Duckling is a Vue SPA. Navigation may
+                 * change the URL, or the original card node
+                 * may simply disappear from the DOM.
                  */
                 const navigationDetected =
                     await waitFor(() => {
                         return (
                             window.location.href !==
                                 overviewUrl ||
-                            !document.documentElement.contains(
-                                oldCard
-                            )
+                            !document.documentElement
+                                .contains(
+                                    oldCard
+                                )
                         );
                     });
 
                 if (!navigationDetected) {
-                    ctx.state.navigationFailures++;
+                    ctx.state
+                        .navigationFailures++;
 
                     yield getState(
                         ctx,
@@ -351,19 +381,74 @@ class DucklingCardCrawlerBehavior {
                 );
 
                 /*
-                 * Requirement:
-                 * remain on card page for 3 seconds.
+                 * ==========================================
+                 * WAIT FOR CARD PAGE TO LOAD FULLY
+                 * ==========================================
+                 *
+                 * On a normal navigation readyState changes.
+                 * On SPA navigation it may already be
+                 * "complete", but this still ensures that
+                 * normal document loading has completed.
                  */
-                await sleep(DETAIL_WAIT);
+                const pageLoaded =
+                    await waitFor(() => {
+                        return (
+                            document.readyState ===
+                            "complete"
+                        );
+                    }, NAV_TIMEOUT);
+
+                if (pageLoaded) {
+                    yield getState(
+                        ctx,
+                        `Card ${cardNumber} page reports fully loaded`
+                    );
+                } else {
+                    yield getState(
+                        ctx,
+                        `Card ${cardNumber} load wait timed out; continuing`
+                    );
+                }
+
+                /*
+                 * Give Vue / dynamic content an additional
+                 * second to settle before starting the
+                 * requested 20-second wait.
+                 */
+                await sleep(1000);
+
+                yield getState(
+                    ctx,
+                    `Card ${cardNumber} ready; waiting 20 seconds`
+                );
 
                 /*
                  * ==========================================
-                 * RETURN TO LIST
+                 * REMAIN ON CARD FOR 20 SECONDS
+                 * ==========================================
+                 */
+
+                await sleep(
+                    DETAIL_WAIT
+                );
+
+                yield getState(
+                    ctx,
+                    `20 second wait finished for card ${cardNumber}; going back`
+                );
+
+                /*
+                 * ==========================================
+                 * RETURN TO FEED
                  * ==========================================
                  */
 
                 window.history.back();
 
+                /*
+                 * Wait until we are back on the original
+                 * overview and cards are visible again.
+                 */
                 const returned =
                     await waitFor(() => {
                         return (
@@ -376,7 +461,8 @@ class DucklingCardCrawlerBehavior {
                     });
 
                 if (!returned) {
-                    ctx.state.navigationFailures++;
+                    ctx.state
+                        .navigationFailures++;
 
                     yield getState(
                         ctx,
@@ -390,32 +476,34 @@ class DucklingCardCrawlerBehavior {
                 }
 
                 /*
-                 * Allow Vue to reconstruct / settle the list.
+                 * Give Vue time to reconstruct and settle
+                 * the feed.
                  */
-                await sleep(BACK_WAIT);
+                await sleep(
+                    BACK_WAIT
+                );
 
                 /*
-                 * DO NOT keep a reference to the old NodeList.
-                 * findNextCard() performs a completely new DOM
-                 * lookup after every navigation.
+                 * findNextCard() now performs a completely
+                 * fresh DOM lookup for the next card.
                  */
             }
 
             /*
              * ==============================================
-             * NO MORE UNVISITED CARDS
+             * NO MORE NEW CARDS IN CURRENT SECTION
              * ==============================================
              */
 
             yield getState(
                 ctx,
                 `No more new cards in ${phase}. ` +
-                `${visitedCards.size} unique cards visited so far.`
+                    `${visitedCards.size} unique cards visited so far.`
             );
 
             /*
-             * If we have already switched to Community,
-             * we're finished.
+             * We have already processed Community.
+             * The behavior is now finished.
              */
             if (
                 communityClicks >=
@@ -424,7 +512,7 @@ class DucklingCardCrawlerBehavior {
                 yield getState(
                     ctx,
                     `Duckling behavior finished. ` +
-                    `${visitedCards.size} unique cards visited.`
+                        `${visitedCards.size} unique cards visited.`
                 );
 
                 return;
@@ -432,7 +520,7 @@ class DucklingCardCrawlerBehavior {
 
             /*
              * ==============================================
-             * SWITCH TO COMMUNITY
+             * CLICK COMMUNITY
              * ==============================================
              */
 
@@ -442,7 +530,7 @@ class DucklingCardCrawlerBehavior {
             if (!communityButton) {
                 yield getState(
                     ctx,
-                    'Community button not found; behavior finished'
+                    "Community button not found; behavior finished"
                 );
 
                 return;
@@ -477,50 +565,58 @@ class DucklingCardCrawlerBehavior {
             );
 
             /*
-             * Community may be a pure Vue state change and
-             * therefore may not change the URL.
+             * Community may be a pure SPA state change
+             * without a URL change.
              *
              * Accept either:
+             *
              *   - URL changes
-             *   - visible card set changes
+             *   - card contents change
              */
             const communityChanged =
                 await waitFor(() => {
                     return (
-                        window.location.href !== oldUrl ||
+                        window.location.href !==
+                            oldUrl ||
                         getCardSignature() !==
                             oldSignature
                     );
                 }, NAV_TIMEOUT);
 
-            if (!communityChanged) {
-                yield getState(
-                    ctx,
-                    "No explicit Community navigation detected; continuing after timeout"
-                );
-            } else {
+            if (communityChanged) {
                 yield getState(
                     ctx,
                     "Community content change detected"
                 );
+            } else {
+                yield getState(
+                    ctx,
+                    "No explicit Community navigation detected; continuing"
+                );
             }
 
             /*
-             * Additional page-load wait requested.
+             * Give Community content additional time
+             * to finish loading.
              */
-            await sleep(COMMUNITY_LOAD_WAIT);
+            await sleep(
+                COMMUNITY_LOAD_WAIT
+            );
 
             phase = "Community";
 
             /*
-             * Loop starts again:
+             * Main loop now starts again:
              *
-             *   30 sec scroll
-             *   -> find cards
-             *   -> open each
-             *   -> wait 3 sec
+             * Community
+             *   -> scroll for 30 seconds
+             *   -> find all new cards
+             *   -> click card
+             *   -> wait for page load
+             *   -> wait 20 seconds
              *   -> back
              *   -> next card
+             *   -> finish when no new cards remain
              */
         }
     }
