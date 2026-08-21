@@ -3,8 +3,8 @@ class RedditChannel {
   static maxScrolls = 500; // hard cap
 
   static isMatch() {
-    //return true; // run on all pages https://www.reddit.com/r/Denmark/
-  return /^https:\/\/www\.reddit\.com\/r\/Denmark\/$/.test(window.location.href);
+    return true; // run on all pages https://www.reddit.com/r/Denmark/
+  //return /^https:\/\/www\.reddit\.com\/r\/Denmark\/$/.test(window.location.href);
   }
 
   static init() {
