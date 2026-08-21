@@ -14,7 +14,6 @@ class ScrollAndClickBehavior {
   static runInIframes = false;
 
   async awaitPageLoad() {
-    // Give Reddit a little time to hydrate/render its web components.
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
@@ -23,10 +22,13 @@ class ScrollAndClickBehavior {
       // Expand/caret controls
       `button:has(svg[icon-name="caret-down-outline"])`,
 
+      // "Se flere kommentarer"
+      `button:has(svg[icon-name="caret-down"])`,
+
       // "1 svar mere", "2 svar mere", etc.
       `button:has(faceplate-tracker[noun="more_replies"])`,
 
-      // Fallback for Reddit's add-circle "more replies" button
+      // Fallback for Reddit's add-circle more-replies button
       `button:has(svg[icon-name="add-circle"])`,
 
       // Comment action buttons
@@ -138,14 +140,13 @@ class ScrollAndClickBehavior {
         stepPx
       };
 
-      // Let newly exposed Reddit content render.
       await sleep(1000);
 
       let passClicks = 0;
 
       /*
-       * Re-scan after every click because expanding replies can insert
-       * additional buttons into the DOM.
+       * Re-scan after every click because Reddit may insert
+       * additional expandable controls dynamically.
        */
       while (totalClicks < maxClicks) {
         const targets = findNewTargets();
@@ -156,8 +157,6 @@ class ScrollAndClickBehavior {
 
         const el = targets[0];
 
-        // Mark before clicking so DOM changes cannot cause an immediate
-        // duplicate click on the same node.
         markClicked(el);
 
         try {
@@ -180,7 +179,7 @@ class ScrollAndClickBehavior {
             passClicks
           };
 
-          // Reddit often inserts replies asynchronously.
+          // Give Reddit time to load newly expanded comments/replies.
           await sleep(1000);
         } catch (e) {
           yield {
@@ -215,10 +214,6 @@ class ScrollAndClickBehavior {
         emptyPasses = 0;
       }
 
-      /*
-       * Require two empty bottom passes. This gives Reddit one additional
-       * opportunity to lazy-load content before terminating.
-       */
       if (emptyPasses >= 2) {
         break;
       }
