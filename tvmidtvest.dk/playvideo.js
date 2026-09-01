@@ -5,6 +5,10 @@ class TVMidtvestKalturaYtDlpBehavior {
   static init() {
     return {
       state: {
+        playButtonFound: false,
+        playButtonClicked: false,
+        popoverOpened: false,
+        playerChangeDetected: false,
         entriesFound: 0,
         mp4sFound: 0,
         fetched: 0,
@@ -20,8 +24,7 @@ class TVMidtvestKalturaYtDlpBehavior {
     return (
       host === "tvmidtvest.dk" ||
       host.endsWith(".tvmidtvest.dk") ||
-      host === "kaltura.com" ||
-      host.endsWith(".kaltura.com") ||
+      host.includes("kaltura") ||
       ref.includes("tvmidtvest.dk")
     );
   }
@@ -36,67 +39,110 @@ class TVMidtvestKalturaYtDlpBehavior {
 
     const DEFAULT_PARTNER_ID = "1953371";
 
-    const entries = new Map();
+    const isTop =
+      window.top === window;
 
-    let packageCandidate = null;
+    const entries =
+      new Map();
 
-    const frameType =
-      window.top === window
-        ? "top"
-        : "iframe";
-
-    yield getState(
-      ctx,
-      `TV MIDTVEST/Kaltura (${frameType}): starting yt-dlp-style extraction`
-    );
+    const directMedia =
+      new Map();
 
 
     // ============================================================
-    // Context helpers
+    // Helpers
     // ============================================================
 
-    function isTVMidtvestContext() {
-      const host =
-        String(
-          location.hostname || ""
-        ).toLowerCase();
+    function cleanUrl(raw) {
+      if (!raw) {
+        return null;
+      }
 
-      const ref =
-        String(
-          document.referrer || ""
-        ).toLowerCase();
+      try {
+        return new URL(
+          String(raw).trim(),
+          document.baseURI
+        ).href;
+      } catch (_) {
+        return null;
+      }
+    }
 
-      return (
-        host === "tvmidtvest.dk" ||
-        host.endsWith(
-          ".tvmidtvest.dk"
-        ) ||
-        ref.includes(
-          "tvmidtvest.dk"
-        )
-      );
+
+    function addDirectMedia(
+      rawUrl,
+      source
+    ) {
+      const url =
+        cleanUrl(rawUrl);
+
+      if (!url) {
+        return;
+      }
+
+      if (
+        !/^https?:/i.test(url)
+      ) {
+        return;
+      }
+
+      const lower =
+        url.toLowerCase();
+
+      let type = null;
+
+      if (
+        /\.mp4(?:$|[?#])/i.test(lower)
+      ) {
+        type = "mp4";
+      } else if (
+        /\.m3u8(?:$|[?#])/i.test(lower)
+      ) {
+        type = "hls";
+      } else if (
+        /\.mpd(?:$|[?#])/i.test(lower)
+      ) {
+        type = "dash";
+      }
+
+      if (!type) {
+        return;
+      }
+
+      if (
+        !directMedia.has(url)
+      ) {
+        directMedia.set(
+          url,
+          {
+            url,
+            type,
+            source,
+          }
+        );
+      }
     }
 
 
     function cleanPartnerId(value) {
-      const s =
+      const v =
         String(value || "")
-          .trim()
-          .replace(/^_/, "");
+          .replace(/^_/, "")
+          .trim();
 
-      return /^\d+$/.test(s)
-        ? s
+      return /^\d+$/.test(v)
+        ? v
         : null;
     }
 
 
     function cleanEntryId(value) {
-      const s =
+      const v =
         String(value || "")
           .trim();
 
-      return /^\d_[A-Za-z0-9]+$/.test(s)
-        ? s
+      return /^\d_[A-Za-z0-9]+$/.test(v)
+        ? v
         : null;
     }
 
@@ -123,205 +169,520 @@ class TVMidtvestKalturaYtDlpBehavior {
       const key =
         `${p}:${e}`;
 
-      if (!entries.has(key)) {
-        entries.set(
-          key,
-          {
-            partnerId: p,
-            entryId: e,
-            source,
-          }
-        );
-      }
-    }
-
-
-    // ============================================================
-    // Extract Kaltura partner IDs
-    // ============================================================
-
-    function findPartnerIds(text) {
-      const s =
-        String(text || "");
-
-      const out =
-        new Set();
-
-      const patterns = [
-
-        // /p/1953371/
-        // /partner_id/1953371/
-
-        /(?:\/|\b)(?:p|partner_id)\/(\d{5,})\b/gi,
-
-
-        // partnerId: "1953371"
-        // partner_id = 1953371
-
-        /["'](?:partnerId|partner_id)["']\s*[:=]\s*["']?_?(\d{5,})/gi,
-
-
-        // wid: "_1953371"
-
-        /["']wid["']\s*[:=]\s*["']_?(\d{5,})/gi,
-
-
-        // ?wid=_1953371
-
-        /(?:[?&]|%26)wid=(?:_|%5F)?(\d{5,})/gi,
-
-
-        // ?partner_id=1953371
-        // ?p=1953371
-
-        /(?:[?&]|%26)(?:p|partner_id)=(\d{5,})/gi,
-      ];
-
-
-      for (const re of patterns) {
-        let m;
-
-        while (
-          (m = re.exec(s)) !== null
-        ) {
-          const p =
-            cleanPartnerId(
-              m[1]
-            );
-
-          if (p) {
-            out.add(p);
-          }
-        }
-      }
-
-      return out;
-    }
-
-
-    // ============================================================
-    // Extract Kaltura entry IDs
-    // ============================================================
-
-    function findEntryIds(text) {
-      const s =
-        String(text || "");
-
-      const out =
-        new Set();
-
-      const patterns = [
-
-        // /entry_id/0_abcd1234
-        // /entryId/0_abcd1234
-
-        /\/entry_?[Ii]d\/(\d_[A-Za-z0-9]+)\b/g,
-
-
-        // ?entry_id=0_abcd1234
-        // ?entryId=0_abcd1234
-
-        /(?:[?&]|%26)entry(?:_|%5F)?id=(\d_[A-Za-z0-9]+)/gi,
-
-
-        // "entry_id": "0_abcd1234"
-        // "entryId": "0_abcd1234"
-
-        /["']entry_?[Ii]d["']\s*[:=]\s*["'](\d_[A-Za-z0-9]+)["']/g,
-
-
-        // entryId = "0_abcd1234"
-
-        /\bentry_?[Ii]d\s*[:=]\s*["'](\d_[A-Za-z0-9]+)["']/g,
-      ];
-
-
-      for (const re of patterns) {
-        let m;
-
-        while (
-          (m = re.exec(s)) !== null
-        ) {
-          const e =
-            cleanEntryId(
-              m[1]
-            );
-
-          if (e) {
-            out.add(e);
-          }
-        }
-      }
-
-
-      // Fallback:
-      //
-      // If the text clearly looks Kaltura-related,
-      // accept raw IDs like:
-      //
-      // 0_xxxxxxxx
-      // 1_xxxxxxxx
-
       if (
-        /kaltura|entry|flavor|uiconf/i.test(
-          s
-        )
+        entries.has(key)
       ) {
-        const re =
-          /\b(\d_[a-z0-9]{6,})\b/gi;
-
-        let m;
-
-        while (
-          (m = re.exec(s)) !== null
-        ) {
-          const e =
-            cleanEntryId(
-              m[1]
-            );
-
-          if (e) {
-            out.add(e);
-          }
-        }
-      }
-
-      return out;
-    }
-
-
-    // ============================================================
-    // Scan arbitrary text for partner + entry ID
-    // ============================================================
-
-    function scanText(
-      text,
-      source
-    ) {
-      const s =
-        String(text || "");
-
-      if (!s) {
         return;
       }
 
+      entries.set(
+        key,
+        {
+          partnerId: p,
+          entryId: e,
+          source,
+        }
+      );
+    }
+
+
+    // ============================================================
+    // STEP 1
+    //
+    // WAIT FOR + CLICK TV MIDTVEST PLAY BUTTON
+    // ============================================================
+
+    if (isTop) {
+      yield getState(
+        ctx,
+        "TV MIDTVEST: waiting for hero play button"
+      );
+
+
+      let playButton =
+        null;
+
+
+      // Wait up to 15 seconds.
+      for (
+        let i = 0;
+        i < 60;
+        i++
+      ) {
+        playButton =
+          document.querySelector(
+            "button.tv-hero-play-button"
+          );
+
+        if (playButton) {
+          break;
+        }
+
+        await sleep(250);
+      }
+
+
+      if (!playButton) {
+        yield getState(
+          ctx,
+          "TV MIDTVEST: FAILED - hero play button not found"
+        );
+
+        return;
+      }
+
+
+      ctx.state.playButtonFound =
+        true;
+
+
+      yield getState(
+        ctx,
+        "TV MIDTVEST: hero play button found"
+      );
+
+
+      // ----------------------------------------------------------
+      // Snapshot state BEFORE click
+      // ----------------------------------------------------------
+
+      const resourcesBefore =
+        new Set(
+          performance
+            .getEntriesByType(
+              "resource"
+            )
+            .map(
+              entry =>
+                entry.name
+            )
+        );
+
+
+      const iframeCountBefore =
+        document.querySelectorAll(
+          "iframe"
+        ).length;
+
+
+      const videoCountBefore =
+        document.querySelectorAll(
+          "video"
+        ).length;
+
+
+      let popoverBefore =
+        document.querySelector(
+          "#video-popover"
+        );
+
+
+      const popoverHTMLBefore =
+        popoverBefore
+          ? popoverBefore.innerHTML
+          : null;
+
+
+      // ----------------------------------------------------------
+      // Scroll button into view
+      // ----------------------------------------------------------
+
+      try {
+        playButton.scrollIntoView({
+          block: "center",
+          inline: "center",
+          behavior: "instant",
+        });
+      } catch (_) {
+        try {
+          playButton.scrollIntoView();
+        } catch (_) {}
+      }
+
+
+      await sleep(500);
+
+
+      // ----------------------------------------------------------
+      // CLICK ONCE
+      //
+      // This is the important missing operation.
+      // ----------------------------------------------------------
+
+      yield getState(
+        ctx,
+        "TV MIDTVEST: clicking hero play button"
+      );
+
+
+      try {
+        playButton.click();
+
+        ctx.state.playButtonClicked =
+          true;
+      } catch (e) {
+        yield getState(
+          ctx,
+          `TV MIDTVEST: play button click failed: ${
+            e &&
+            e.message
+              ? e.message
+              : e
+          }`
+        );
+
+        return;
+      }
+
+
+      // ==========================================================
+      // STEP 2
+      //
+      // WAIT FOR POPOVER / PLAYER / NETWORK CHANGE
+      // ==========================================================
+
+      yield getState(
+        ctx,
+        "TV MIDTVEST: waiting for video popover/player to initialize"
+      );
+
+
+      let changeReason =
+        null;
+
+
+      // Up to 20 seconds after click.
+      for (
+        let attempt = 0;
+        attempt < 80;
+        attempt++
+      ) {
+        const popover =
+          document.querySelector(
+            "#video-popover"
+          );
+
+
+        // --------------------------------------------------------
+        // Has popover opened?
+        // --------------------------------------------------------
+
+        if (popover) {
+          let open =
+            false;
+
+          try {
+            open =
+              popover.matches(
+                ":popover-open"
+              );
+          } catch (_) {}
+
+
+          // Alpine / CSS fallback.
+          if (
+            open ||
+            popover.hasAttribute(
+              "open"
+            ) ||
+            popover.getAttribute(
+              "aria-hidden"
+            ) === "false"
+          ) {
+            ctx.state.popoverOpened =
+              true;
+          }
+
+
+          // Content of existing popover changed.
+          if (
+            popoverHTMLBefore !== null &&
+            popover.innerHTML !==
+              popoverHTMLBefore
+          ) {
+            changeReason =
+              "video-popover DOM changed";
+          }
+        }
+
+
+        // --------------------------------------------------------
+        // New iframe?
+        // --------------------------------------------------------
+
+        const iframeCount =
+          document.querySelectorAll(
+            "iframe"
+          ).length;
+
+
+        if (
+          iframeCount >
+          iframeCountBefore
+        ) {
+          changeReason =
+            `new iframe created (${iframeCountBefore} -> ${iframeCount})`;
+        }
+
+
+        // --------------------------------------------------------
+        // New <video>?
+        // --------------------------------------------------------
+
+        const videoCount =
+          document.querySelectorAll(
+            "video"
+          ).length;
+
+
+        if (
+          videoCount >
+          videoCountBefore
+        ) {
+          changeReason =
+            `new video element created (${videoCountBefore} -> ${videoCount})`;
+        }
+
+
+        // --------------------------------------------------------
+        // New media/player network requests?
+        // --------------------------------------------------------
+
+        const resourcesNow =
+          performance.getEntriesByType(
+            "resource"
+          );
+
+
+        for (
+          const entry
+          of resourcesNow
+        ) {
+          const url =
+            entry.name;
+
+
+          if (
+            resourcesBefore.has(
+              url
+            )
+          ) {
+            continue;
+          }
+
+
+          if (
+            /kaltura|video|player|manifest|m3u8|mpd|mp4|flavor|playlist/i.test(
+              url
+            )
+          ) {
+            changeReason =
+              `new player/network resource: ${url}`;
+
+            break;
+          }
+        }
+
+
+        if (changeReason) {
+          break;
+        }
+
+
+        await sleep(250);
+      }
+
+
+      if (changeReason) {
+        ctx.state.playerChangeDetected =
+          true;
+
+        yield getState(
+          ctx,
+          `TV MIDTVEST: player initialized - ${changeReason}`
+        );
+      } else {
+        yield getState(
+          ctx,
+          "TV MIDTVEST: no obvious player change detected yet; continuing extraction anyway"
+        );
+      }
+
+
+      // Give JS player another moment after the first mutation.
+      await sleep(2000);
+
+
+      // ==========================================================
+      // STEP 3
+      //
+      // LOG WHAT ACTUALLY APPEARED
+      // ==========================================================
+
+      for (
+        const iframe
+        of document.querySelectorAll(
+          "iframe"
+        )
+      ) {
+        if (iframe.src) {
+          yield getState(
+            ctx,
+            `TV MIDTVEST: iframe after click: ${iframe.src}`
+          );
+        }
+      }
+
+
+      for (
+        const video
+        of document.querySelectorAll(
+          "video"
+        )
+      ) {
+        if (video.currentSrc) {
+          yield getState(
+            ctx,
+            `TV MIDTVEST: video.currentSrc after click: ${video.currentSrc}`
+          );
+        }
+
+        if (video.src) {
+          yield getState(
+            ctx,
+            `TV MIDTVEST: video.src after click: ${video.src}`
+          );
+        }
+      }
+    }
+
+
+    // ============================================================
+    // STEP 4
+    //
+    // Scan resulting DOM/network data.
+    // ============================================================
+
+    function scanText(
+      input,
+      source
+    ) {
+      if (!input) {
+        return;
+      }
+
+      const text =
+        String(input)
+          .replace(
+            /\\u002F/gi,
+            "/"
+          )
+          .replace(
+            /\\\//g,
+            "/"
+          )
+          .replace(
+            /&amp;/gi,
+            "&"
+          );
+
+
+      // ----------------------------------------------------------
+      // Direct media URLs
+      // ----------------------------------------------------------
+
+      const mediaRegex =
+        /https?:\/\/[^"'<> \t\r\n]+?\.(?:mp4|m3u8|mpd)(?:\?[^"'<> \t\r\n]*)?/gi;
+
+
+      let m;
+
+
+      while (
+        (m =
+          mediaRegex.exec(
+            text
+          )) !== null
+      ) {
+        addDirectMedia(
+          m[0],
+          source
+        );
+      }
+
+
+      // ----------------------------------------------------------
+      // Kaltura partner IDs
+      // ----------------------------------------------------------
+
       const partners =
-        findPartnerIds(s);
+        new Set();
+
+
+      const partnerPatterns = [
+        /\/p\/(\d{5,})\b/gi,
+        /\/partner_id\/(\d{5,})\b/gi,
+        /["']partnerId["']\s*[:=]\s*["']?_?(\d{5,})/gi,
+        /["']partner_id["']\s*[:=]\s*["']?_?(\d{5,})/gi,
+        /["']wid["']\s*[:=]\s*["']_?(\d{5,})/gi,
+        /[?&]wid=_?(\d{5,})/gi,
+      ];
+
+
+      for (
+        const re
+        of partnerPatterns
+      ) {
+        while (
+          (m =
+            re.exec(
+              text
+            )) !== null
+        ) {
+          partners.add(
+            m[1]
+          );
+        }
+      }
+
+
+      // ----------------------------------------------------------
+      // Kaltura entry IDs
+      // ----------------------------------------------------------
 
       const entryIds =
-        findEntryIds(s);
+        new Set();
 
 
-      // TV MIDTVEST fallback:
-      //
-      // If we find an entry ID but the partner ID
-      // is not included nearby, use the known
-      // TV MIDTVEST Kaltura tenant.
+      const entryPatterns = [
+        /\/entryId\/(\d_[A-Za-z0-9]+)/gi,
+        /\/entry_id\/(\d_[A-Za-z0-9]+)/gi,
+        /[?&]entry_?id=(\d_[A-Za-z0-9]+)/gi,
+        /["']entry_?id["']\s*[:=]\s*["'](\d_[A-Za-z0-9]+)["']/gi,
+      ];
 
+
+      for (
+        const re
+        of entryPatterns
+      ) {
+        while (
+          (m =
+            re.exec(
+              text
+            )) !== null
+        ) {
+          entryIds.add(
+            m[1]
+          );
+        }
+      }
+
+
+      // On TV MIDTVEST we know the partner.
       if (
-        !partners.size &&
         entryIds.size &&
-        isTVMidtvestContext()
+        !partners.size
       ) {
         partners.add(
           DEFAULT_PARTNER_ID
@@ -330,16 +691,16 @@ class TVMidtvestKalturaYtDlpBehavior {
 
 
       for (
-        const partnerId
+        const p
         of partners
       ) {
         for (
-          const entryId
+          const e
           of entryIds
         ) {
           addEntry(
-            partnerId,
-            entryId,
+            p,
+            e,
             source
           );
         }
@@ -347,574 +708,198 @@ class TVMidtvestKalturaYtDlpBehavior {
     }
 
 
-    // ============================================================
-    // Scan current browser frame
-    // ============================================================
+    // ------------------------------------------------------------
+    // HTML after video initialization
+    // ------------------------------------------------------------
 
-    function scanCurrentFrame() {
-
-      // Current URL
-
+    try {
       scanText(
-        location.href,
-        "location"
+        document.documentElement
+          .innerHTML,
+        "document-after-click"
       );
-
-
-      // HTML
-
-      try {
-        scanText(
-          document.documentElement
-            .innerHTML,
-          "document-html"
-        );
-      } catch (_) {}
-
-
-      // Iframe URLs
-
-      try {
-        for (
-          const iframe
-          of document.querySelectorAll(
-            "iframe[src]"
-          )
-        ) {
-          scanText(
-            iframe.src,
-            "iframe-src"
-          );
-        }
-      } catch (_) {}
-
-
-      // Already observed network resources
-
-      try {
-        for (
-          const resource
-          of performance.getEntriesByType(
-            "resource"
-          )
-        ) {
-          scanText(
-            resource.name,
-            "performance"
-          );
-        }
-      } catch (_) {}
-    }
-
-
-    // ============================================================
-    // Normalize Kaltura API structures
-    // ============================================================
-
-    function normalizeInfo(value) {
-      if (!value) {
-        return null;
-      }
-
-      if (
-        Array.isArray(
-          value.objects
-        )
-      ) {
-        return (
-          value.objects[0] ||
-          null
-        );
-      }
-
-      return value;
-    }
-
-
-    function normalizeFlavors(value) {
-      if (
-        Array.isArray(value)
-      ) {
-        return value;
-      }
-
-      if (
-        value &&
-        Array.isArray(
-          value.objects
-        )
-      ) {
-        return value.objects;
-      }
-
-      return [];
-    }
-
-
-    function extractKs(value) {
-      if (!value) {
-        return null;
-      }
-
-      if (
-        typeof value.ks ===
-          "string" &&
-        value.ks
-      ) {
-        return value.ks;
-      }
-
-      if (
-        value.result &&
-        typeof value.result.ks ===
-          "string" &&
-        value.result.ks
-      ) {
-        return (
-          value.result.ks
-        );
-      }
-
-      return null;
-    }
-
-
-    // ============================================================
-    // kalturaIframePackageData
-    //
-    // yt-dlp uses this when an embed starts with
-    // referenceId rather than an entry_id.
-    // ============================================================
-
-    function inspectIframePackageData() {
-      try {
-
-        const pkg =
-          window
-            .kalturaIframePackageData;
-
-        const result =
-          pkg &&
-          pkg.entryResult;
-
-        if (!result) {
-          return false;
-        }
-
-
-        const info =
-          result.meta ||
-          null;
-
-
-        const contextData =
-          result.contextData ||
-          null;
-
-
-        const flavors =
-          contextData &&
-          contextData
-            .flavorAssets;
-
-
-        const entryId =
-          info &&
-          cleanEntryId(
-            info.id
-          );
-
-
-        if (
-          !info ||
-          !entryId ||
-          !Array.isArray(
-            flavors
-          )
-        ) {
-          return false;
-        }
-
-
-        const partners =
-          new Set(
-            findPartnerIds(
-              location.href
-            )
-          );
-
-
-        try {
-          for (
-            const p
-            of findPartnerIds(
-              document
-                .documentElement
-                .innerHTML
-            )
-          ) {
-            partners.add(p);
-          }
-        } catch (_) {}
-
-
-        if (
-          !partners.size &&
-          isTVMidtvestContext()
-        ) {
-          partners.add(
-            DEFAULT_PARTNER_ID
-          );
-        }
-
-
-        const partnerId =
-          [...partners][0] ||
-          null;
-
-
-        if (partnerId) {
-          addEntry(
-            partnerId,
-            entryId,
-            "kalturaIframePackageData"
-          );
-        }
-
-
-        packageCandidate = {
-          partnerId,
-          entryId,
-          info,
-          flavors,
-
-          ks:
-            extractKs(
-              contextData
-            ),
-
-          source:
-            "kalturaIframePackageData",
-        };
-
-
-        return true;
-
-      } catch (_) {
-
-        return false;
-      }
-    }
-
-
-    // ============================================================
-    // Normalize dataUrl
-    // ============================================================
-
-    function normalizeDataUrl(value) {
-      let url =
-        String(value || "")
-          .trim();
-
-      if (!url) {
-        return null;
-      }
-
-
-      // protocol-relative URL
-
-      if (
-        url.startsWith("//")
-      ) {
-        url =
-          `${location.protocol}${url}`;
-      }
-
-
-      // Same transformation as yt-dlp
-
-      if (
-        url.includes(
-          "/flvclipper/"
-        )
-      ) {
-        url =
-          url.replace(
-            /\/flvclipper\/.*/,
-            "/serveFlavor"
-          );
-      }
-
-
-      return url.replace(
-        /\/$/,
-        ""
+    } catch (_) {}
+
+
+    // ------------------------------------------------------------
+    // iframe URLs
+    // ------------------------------------------------------------
+
+    for (
+      const iframe
+      of document.querySelectorAll(
+        "iframe[src]"
+      )
+    ) {
+      scanText(
+        iframe.src,
+        "iframe-after-click"
       );
     }
 
 
-    // ============================================================
-    // Kaltura referrer parameter
-    //
-    // yt-dlp can attach a base64 encoded source origin.
-    // ============================================================
+    // ------------------------------------------------------------
+    // <video> and <source>
+    // ------------------------------------------------------------
 
-    function getTVMidtvestOrigin() {
+    for (
+      const video
+      of document.querySelectorAll(
+        "video"
+      )
+    ) {
+      addDirectMedia(
+        video.currentSrc,
+        "video.currentSrc"
+      );
+
+      addDirectMedia(
+        video.src,
+        "video.src"
+      );
+
+
       for (
-        const value
-        of [
-          document.referrer,
-          location.href,
-        ]
+        const source
+        of video.querySelectorAll(
+          "source[src]"
+        )
       ) {
+        addDirectMedia(
+          source.src,
+          "video-source"
+        );
+      }
+    }
 
-        if (!value) {
-          continue;
-        }
 
+    // ------------------------------------------------------------
+    // Performance/network
+    // ------------------------------------------------------------
+
+    for (
+      const entry
+      of performance.getEntriesByType(
+        "resource"
+      )
+    ) {
+      scanText(
+        entry.name,
+        "performance"
+      );
+
+      addDirectMedia(
+        entry.name,
+        "performance"
+      );
+    }
+
+
+    // ============================================================
+    // STEP 5
+    //
+    // If click exposed an MP4 directly, archive it immediately.
+    // ============================================================
+
+    const directMp4 =
+      [...directMedia.values()]
+        .find(
+          media =>
+            media.type ===
+              "mp4"
+        );
+
+
+    if (directMp4) {
+      ctx.state.mp4sFound++;
+
+
+      yield getState(
+        ctx,
+        `TV MIDTVEST: direct MP4 discovered after click [${directMp4.source}]: ${directMp4.url}`
+      );
+
+
+      if (
+        typeof doExternalFetch ===
+        "function"
+      ) {
         try {
-
-          const u =
-            new URL(
-              value,
-              location.href
+          const ok =
+            await doExternalFetch(
+              directMp4.url
             );
 
-          const host =
-            u.hostname
-              .toLowerCase();
+          if (ok) {
+            ctx.state.fetched++;
 
+            yield getState(
+              ctx,
+              `TV MIDTVEST: SUCCESS - direct MP4 fetched: ${directMp4.url}`
+            );
 
-          if (
-            host ===
-              "tvmidtvest.dk" ||
-            host.endsWith(
-              ".tvmidtvest.dk"
-            )
-          ) {
-            return u.origin;
+            return;
           }
-
         } catch (_) {}
       }
-
-      return null;
-    }
-
-
-    function addKalturaReferrer(url) {
-      const origin =
-        getTVMidtvestOrigin();
-
-      if (!origin) {
-        return url;
-      }
-
-      try {
-
-        const referrer =
-          btoa(origin);
-
-        const separator =
-          url.includes("?")
-            ? "&"
-            : "?";
-
-        return (
-          `${url}` +
-          `${separator}` +
-          `referrer=` +
-          encodeURIComponent(
-            referrer
-          )
-        );
-
-      } catch (_) {
-
-        return url;
-      }
     }
 
 
     // ============================================================
-    // MP4 flavor selection
+    // STEP 6
+    //
+    // Report HLS/DASH too.
+    //
+    // This is important because yt-dlp may actually see a manifest,
+    // rather than a literal .mp4.
     // ============================================================
 
-    function isReadyMp4Flavor(
-      flavor
+    for (
+      const media
+      of directMedia.values()
     ) {
       if (
-        !flavor ||
-        !flavor.id ||
-        Number(
-          flavor.status
-        ) !== 2
+        media.type !== "mp4"
       ) {
-        return false;
+        yield getState(
+          ctx,
+          `TV MIDTVEST: ${media.type.toUpperCase()} discovered after click [${media.source}]: ${media.url}`
+        );
       }
-
-
-      let ext =
-        String(
-          flavor.fileExt ||
-          ""
-        ).toLowerCase();
-
-
-      // yt-dlp skips unavailable
-      // and DRM formats.
-
-      if (
-        ext === "chun" ||
-        ext === "wvm"
-      ) {
-        return false;
-      }
-
-
-      // yt-dlp assumes MP4 when fileExt
-      // is missing unless container is qt.
-
-      if (!ext) {
-
-        if (
-          String(
-            flavor
-              .containerFormat ||
-            ""
-          ).toLowerCase()
-            === "qt"
-        ) {
-          return false;
-        }
-
-        ext = "mp4";
-      }
-
-
-      return ext === "mp4";
-    }
-
-
-    function flavorScore(
-      flavor
-    ) {
-      const height =
-        Number(
-          flavor.height ||
-          0
-        );
-
-      const width =
-        Number(
-          flavor.width ||
-          0
-        );
-
-      const bitrate =
-        Number(
-          flavor.bitrate ||
-          0
-        );
-
-      const size =
-        Number(
-          flavor.size ||
-          0
-        );
-
-
-      return (
-        height * 1e15 +
-        width * 1e11 +
-        bitrate * 1e5 +
-        size
-      );
-    }
-
-
-    function selectBestMp4(
-      flavors
-    ) {
-      return (
-        normalizeFlavors(
-          flavors
-        )
-          .filter(
-            isReadyMp4Flavor
-          )
-          .sort(
-            (a, b) =>
-              flavorScore(b) -
-              flavorScore(a)
-          )[0] ||
-        null
-      );
     }
 
 
     // ============================================================
-    // Construct direct MP4 URL
+    // STEP 7
     //
-    // This is the key yt-dlp Kaltura method:
-    //
-    // dataUrl + "/flavorId/" + flavor.id
+    // Kaltura API extraction if an entry ID appeared.
     // ============================================================
 
-    function buildFlavorUrl(
-      info,
-      flavor,
-      ks
-    ) {
-      const dataUrl =
-        normalizeDataUrl(
-          info &&
-          info.dataUrl
-        );
-
-      if (
-        !dataUrl ||
-        !flavor ||
-        !flavor.id
-      ) {
-        return null;
-      }
+    ctx.state.entriesFound =
+      entries.size;
 
 
-      let url =
-        `${dataUrl}` +
-        `/flavorId/` +
-        `${flavor.id}`;
-
-
-      if (ks) {
-        url +=
-          `/ks/${ks}`;
-      }
-
-
-      return (
-        addKalturaReferrer(
-          url
-        )
+    if (!entries.size) {
+      yield getState(
+        ctx,
+        "TV MIDTVEST: extraction stopped - player was initialized, but no Kaltura entry_id was found"
       );
+
+      return;
     }
 
 
-    // ============================================================
-    // Kaltura API
-    //
-    // Structurally equivalent to current yt-dlp KalturaIE
-    // html5 multirequest.
-    // ============================================================
-
-    async function getKalturaVideoInfo(
-      partnerId,
-      entryId
+    for (
+      const item
+      of entries.values()
     ) {
+      yield getState(
+        ctx,
+        `TV MIDTVEST/Kaltura: found partner=${item.partnerId}, entry=${item.entryId} via ${item.source}`
+      );
+
 
       const payload = {
-
         apiVersion:
           "3.3.0",
 
@@ -925,18 +910,11 @@ class TVMidtvestKalturaYtDlpBehavior {
 
         ks: "",
 
-        partnerId,
-
-
-        // --------------------------------------------------------
-        // Request 1:
-        // startWidgetSession
-        // --------------------------------------------------------
+        partnerId:
+          item.partnerId,
 
         1: {
-
-          expiry:
-            86400,
+          expiry: 86400,
 
           service:
             "session",
@@ -945,24 +923,16 @@ class TVMidtvestKalturaYtDlpBehavior {
             "startWidgetSession",
 
           widgetId:
-            `_${partnerId}`,
+            `_${item.partnerId}`,
         },
 
-
-        // --------------------------------------------------------
-        // Request 2:
-        // baseentry metadata
-        // --------------------------------------------------------
-
         2: {
-
           action:
             "list",
 
           filter: {
-
             redirectFromEntryId:
-              entryId,
+              item.entryId,
           },
 
           service:
@@ -972,32 +942,19 @@ class TVMidtvestKalturaYtDlpBehavior {
             "{1:result:ks}",
 
           responseProfile: {
-
             type: 1,
 
             fields:
-              "createdAt," +
-              "dataUrl," +
-              "duration," +
-              "name," +
-              "plays," +
-              "thumbnailUrl," +
-              "userId",
+              "createdAt,dataUrl,duration,name,plays,thumbnailUrl,userId",
           },
         },
 
-
-        // --------------------------------------------------------
-        // Request 3:
-        // flavor assets
-        // --------------------------------------------------------
-
         3: {
-
           action:
             "getbyentryid",
 
-          entryId,
+          entryId:
+            item.entryId,
 
           service:
             "flavorAsset",
@@ -1008,554 +965,50 @@ class TVMidtvestKalturaYtDlpBehavior {
       };
 
 
-      const endpoints = [
-
-        "https://cdnapi.kaltura.com/api_v3/service/multirequest",
-
-        "https://cdnapisec.kaltura.com/api_v3/service/multirequest",
-      ];
-
-
-      let lastError =
-        null;
-
-
-      for (
-        const endpoint
-        of endpoints
-      ) {
-
-        try {
-
-          const response =
-            await fetch(
-              endpoint,
-              {
-                method:
-                  "POST",
-
-                credentials:
-                  "omit",
-
-                headers: {
-
-                  "Content-Type":
-                    "application/json",
-
-                  Accept:
-                    "application/json",
-                },
-
-                body:
-                  JSON.stringify(
-                    payload
-                  ),
-              }
-            );
-
-
-          if (
-            !response.ok
-          ) {
-            throw new Error(
-              `HTTP ${response.status}`
-            );
-          }
-
-
-          const data =
-            await response.json();
-
-
-          if (
-            !Array.isArray(
-              data
-            )
-          ) {
-            throw new Error(
-              "Kaltura multirequest returned non-array data"
-            );
-          }
-
-
-          // Detect Kaltura API exceptions.
-
-          for (
-            let i = 0;
-            i < data.length;
-            i++
-          ) {
-
-            const value =
-              data[i];
-
-
-            if (
-              value &&
-              typeof value ===
-                "object" &&
-              value.objectType ===
-                "KalturaAPIException"
-            ) {
-
-              throw new Error(
-                `Kaltura API exception ${i}: ` +
-                `${
-                  value.message ||
-                  "unknown"
-                }`
-              );
-            }
-          }
-
-
-          const info =
-            normalizeInfo(
-              data[1]
-            );
-
-
-          const flavors =
-            normalizeFlavors(
-              data[2]
-            );
-
-
-          const ks =
-            extractKs(
-              data[0]
-            );
-
-
-          if (!info) {
-            throw new Error(
-              "No baseentry metadata returned"
-            );
-          }
-
-
-          if (
-            !flavors.length
-          ) {
-            throw new Error(
-              "No flavor assets returned"
-            );
-          }
-
-
-          return {
-            info,
-            flavors,
-            ks,
-          };
-
-        } catch (e) {
-
-          lastError = e;
-        }
-      }
-
-
-      throw (
-        lastError ||
-        new Error(
-          "Kaltura API request failed"
-        )
-      );
-    }
-
-
-    // ============================================================
-    // Archive MP4
-    //
-    // Primary:
-    // doExternalFetch()
-    //
-    // Fallback:
-    // addLink()
-    // ============================================================
-
-    async function archiveMp4(
-      url
-    ) {
-
-      // ----------------------------------------------------------
-      // Browsertrix crawler-side direct fetch
-      // ----------------------------------------------------------
-
-      if (
-        typeof doExternalFetch ===
-        "function"
-      ) {
-
-        try {
-
-          if (
-            await doExternalFetch(
-              url
-            )
-          ) {
-            return {
-
-              ok: true,
-
-              method:
-                "doExternalFetch",
-
-              url,
-            };
-          }
-
-        } catch (_) {}
-
-
-        // If Kaltura returned HTTP,
-        // also try HTTPS.
-
-        if (
-          /^http:\/\//i.test(
-            url
-          )
-        ) {
-
-          try {
-
-            const httpsUrl =
-              url.replace(
-                /^http:\/\//i,
-                "https://"
-              );
-
-
-            if (
-              await doExternalFetch(
-                httpsUrl
-              )
-            ) {
-
-              return {
-
-                ok: true,
-
-                method:
-                  "doExternalFetch(https)",
-
-                url:
-                  httpsUrl,
-              };
-            }
-
-          } catch (_) {}
-        }
-      }
-
-
-      // ----------------------------------------------------------
-      // Last fallback:
-      // add direct URL to crawl queue
-      // ----------------------------------------------------------
-
-      if (
-        typeof addLink ===
-        "function"
-      ) {
-
-        try {
-
-          await addLink(
-            url
-          );
-
-
-          return {
-
-            ok: true,
-
-            method:
-              "addLink",
-
-            url,
-          };
-
-        } catch (_) {}
-      }
-
-
-      return {
-
-        ok: false,
-
-        method: null,
-
-        url,
-      };
-    }
-
-
-    // ============================================================
-    // Process Kaltura metadata
-    // ============================================================
-
-    async function* processVideo(
-      info,
-      flavors,
-      ks,
-      source,
-      entryId
-    ) {
-
-      const best =
-        selectBestMp4(
-          flavors
-        );
-
-
-      if (!best) {
-
-        yield getState(
-          ctx,
-
-          `TV MIDTVEST/Kaltura: ` +
-          `no ready MP4 flavor for ` +
-          `${entryId}`
-        );
-
-        return false;
-      }
-
-
-      const videoUrl =
-        buildFlavorUrl(
-          info,
-          best,
-          ks
-        );
-
-
-      if (!videoUrl) {
-
-        yield getState(
-          ctx,
-
-          `TV MIDTVEST/Kaltura: ` +
-          `could not construct MP4 URL for ` +
-          `${entryId}`
-        );
-
-        return false;
-      }
-
-
-      ctx.state.mp4sFound++;
-
-
-      yield getState(
-        ctx,
-
-        `TV MIDTVEST/Kaltura: ` +
-        `MP4 discovered ` +
-        `${best.height || "?"}p ` +
-        `${best.bitrate || "?"}kbps ` +
-        `[${source}] ` +
-        `${videoUrl}`
-      );
-
-
-      const result =
-        await archiveMp4(
-          videoUrl
-        );
-
-
-      if (
-        result.ok
-      ) {
-
-        ctx.state.fetched++;
-
-
-        yield getState(
-          ctx,
-
-          `TV MIDTVEST/Kaltura: SUCCESS - ` +
-          `MP4 sent to ` +
-          `${result.method}: ` +
-          `${result.url}`
-        );
-
-
-        return true;
-      }
-
-
-      yield getState(
-        ctx,
-
-        `TV MIDTVEST/Kaltura: ` +
-        `MP4 discovered but fetch failed: ` +
-        `${videoUrl}`
-      );
-
-
-      return false;
-    }
-
-
-    // ============================================================
-    // DISCOVERY
-    //
-    // IMPORTANT:
-    //
-    // There is deliberately:
-    //
-    // - no play()
-    // - no click on play button
-    // - no aria-label=Pause test
-    // - no JW Player PLAYING test
-    //
-    // We only wait for Kaltura metadata.
-    // ============================================================
-
-    for (
-      let attempt = 1;
-      attempt <= 20;
-      attempt++
-    ) {
-
-      inspectIframePackageData();
-
-      scanCurrentFrame();
-
-
-      if (
-        packageCandidate ||
-        entries.size
-      ) {
-        break;
-      }
-
-
-      await sleep(
-        500
-      );
-    }
-
-
-    ctx.state.entriesFound =
-      entries.size;
-
-
-    // ============================================================
-    // METHOD 1:
-    // kalturaIframePackageData
-    //
-    // This is particularly useful for referenceId embeds.
-    // ============================================================
-
-    if (
-      packageCandidate
-    ) {
-
-      yield getState(
-        ctx,
-
-        `TV MIDTVEST/Kaltura: ` +
-        `resolved entry ` +
-        `${packageCandidate.entryId} ` +
-        `via kalturaIframePackageData`
-      );
-
-
-      const gen =
-        processVideo(
-
-          packageCandidate.info,
-
-          packageCandidate.flavors,
-
-          packageCandidate.ks,
-
-          packageCandidate.source,
-
-          packageCandidate.entryId
-        );
-
-
-      let step =
-        await gen.next();
-
-
-      while (
-        !step.done
-      ) {
-
-        yield step.value;
-
-        step =
-          await gen.next();
-      }
-
-
-      if (
-        step.value === true
-      ) {
-        return;
-      }
-    }
-
-
-    // ============================================================
-    // METHOD 2:
-    // Kaltura API
-    //
-    // partner_id + entry_id
-    // ->
-    // multirequest
-    // ->
-    // baseentry
-    // ->
-    // flavorAsset
-    // ->
-    // direct MP4
-    // ============================================================
-
-    for (
-      const item
-      of entries.values()
-    ) {
-
-      yield getState(
-        ctx,
-
-        `TV MIDTVEST/Kaltura: ` +
-        `found partner=${item.partnerId}, ` +
-        `entry=${item.entryId} ` +
-        `via ${item.source}`
-      );
-
-
-      let apiData;
+      let data;
 
 
       try {
+        const response =
+          await fetch(
+            "https://cdnapi.kaltura.com/api_v3/service/multirequest",
+            {
+              method:
+                "POST",
 
-        apiData =
-          await getKalturaVideoInfo(
+              credentials:
+                "omit",
 
-            item.partnerId,
+              headers: {
+                "Content-Type":
+                  "application/json",
 
-            item.entryId
+                Accept:
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify(
+                  payload
+                ),
+            }
           );
 
-      } catch (e) {
 
+        if (!response.ok) {
+          throw new Error(
+            `HTTP ${response.status}`
+          );
+        }
+
+
+        data =
+          await response.json();
+
+      } catch (e) {
         yield getState(
           ctx,
-
-          `TV MIDTVEST/Kaltura: ` +
-          `API lookup failed for ` +
-          `${item.entryId}: ` +
-          `${
+          `TV MIDTVEST/Kaltura: API request failed: ${
             e &&
             e.message
               ? e.message
@@ -1563,100 +1016,175 @@ class TVMidtvestKalturaYtDlpBehavior {
           }`
         );
 
+        continue;
+      }
+
+
+      const info =
+        data &&
+        data[1] &&
+        Array.isArray(
+          data[1].objects
+        )
+          ? data[1].objects[0]
+          : null;
+
+
+      const flavors =
+        data &&
+        data[2] &&
+        Array.isArray(
+          data[2].objects
+        )
+          ? data[2].objects
+          : [];
+
+
+      if (
+        !info ||
+        !info.dataUrl ||
+        !flavors.length
+      ) {
+        yield getState(
+          ctx,
+          "TV MIDTVEST/Kaltura: API returned no usable baseentry/flavor data"
+        );
 
         continue;
       }
 
 
-      yield getState(
-        ctx,
+      const mp4Flavors =
+        flavors
+          .filter(
+            f => {
+              const ext =
+                String(
+                  f.fileExt ||
+                  "mp4"
+                ).toLowerCase();
 
-        `TV MIDTVEST/Kaltura: ` +
-        `API metadata received for ` +
-        `${item.entryId} ` +
-        `(${apiData.flavors.length} flavor assets)`
-      );
+              return (
+                f.id &&
+                Number(f.status) ===
+                  2 &&
+                ext === "mp4"
+              );
+            }
+          )
+          .sort(
+            (a, b) =>
+              Number(
+                b.height || 0
+              ) -
+                Number(
+                  a.height || 0
+                ) ||
+              Number(
+                b.bitrate || 0
+              ) -
+                Number(
+                  a.bitrate || 0
+                )
+          );
 
 
-      const gen =
-        processVideo(
+      if (!mp4Flavors.length) {
+        yield getState(
+          ctx,
+          "TV MIDTVEST/Kaltura: no ready MP4 flavor returned"
+        );
 
-          apiData.info,
+        continue;
+      }
 
-          apiData.flavors,
 
-          apiData.ks,
+      const flavor =
+        mp4Flavors[0];
 
-          "Kaltura API",
 
-          item.entryId
+      let videoUrl =
+        String(
+          info.dataUrl
+        ).replace(
+          /\/$/,
+          ""
         );
 
 
-      let step =
-        await gen.next();
-
-
-      while (
-        !step.done
+      if (
+        videoUrl.includes(
+          "/flvclipper/"
+        )
       ) {
+        videoUrl =
+          videoUrl.replace(
+            /\/flvclipper\/.*/,
+            "/serveFlavor"
+          );
+      }
 
-        yield step.value;
 
-        step =
-          await gen.next();
+      videoUrl +=
+        `/flavorId/${flavor.id}`;
+
+
+      ctx.state.mp4sFound++;
+
+
+      yield getState(
+        ctx,
+        `TV MIDTVEST/Kaltura: selected ${flavor.height || "?"}p MP4: ${videoUrl}`
+      );
+
+
+      if (
+        typeof doExternalFetch ===
+        "function"
+      ) {
+        try {
+          const ok =
+            await doExternalFetch(
+              videoUrl
+            );
+
+          if (ok) {
+            ctx.state.fetched++;
+
+            yield getState(
+              ctx,
+              `TV MIDTVEST/Kaltura: SUCCESS - MP4 fetched: ${videoUrl}`
+            );
+
+            return;
+          }
+        } catch (_) {}
       }
 
 
       if (
-        step.value === true
+        typeof addLink ===
+        "function"
       ) {
-        return;
+        try {
+          await addLink(
+            videoUrl
+          );
+
+          yield getState(
+            ctx,
+            `TV MIDTVEST/Kaltura: MP4 added to crawl queue: ${videoUrl}`
+          );
+
+          return;
+        } catch (_) {}
       }
-    }
-
-
-    // ============================================================
-    // Diagnostics
-    // ============================================================
-
-    if (
-      !entries.size &&
-      !packageCandidate
-    ) {
-
-      yield getState(
-        ctx,
-
-        "TV MIDTVEST/Kaltura: FAILED - " +
-        "no Kaltura entry_id or iframe package data discovered"
-      );
-
-      return;
-    }
-
-
-    if (
-      ctx.state.mp4sFound ===
-      0
-    ) {
-
-      yield getState(
-        ctx,
-
-        "TV MIDTVEST/Kaltura: FAILED - " +
-        "Kaltura entry found, but no ready direct MP4 flavor was discovered"
-      );
-
-      return;
     }
 
 
     yield getState(
       ctx,
-
-      "TV MIDTVEST/Kaltura: FAILED - " +
-      "direct MP4 discovered, but Browsertrix did not fetch it"
+      "TV MIDTVEST: FAILED - video initialized, but no archiveable MP4 was obtained"
     );
   }
 }
