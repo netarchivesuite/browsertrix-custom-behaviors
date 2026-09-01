@@ -2,13 +2,97 @@
   "title": "TV MIDTVEST video",
   "steps": [
     {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["button.tv-hero-play-button"]
+      ]
+    },
+    {
       "type": "click",
       "target": "main",
       "selectors": [
         ["button.tv-hero-play-button"]
-      ],
-      "offsetX": 30,
-      "offsetY": 20
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForExpression",
+      "target": "main",
+      "expression": "(() => { const v = document.querySelector('#video-popover video, video'); if (!v) return false; v.muted = true; v.defaultMuted = true; v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.play().catch(() => {}); return true; })()"
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForExpression",
+      "target": "main",
+      "expression": "(() => { const v = document.querySelector('#video-popover video, video'); if (!v) return false; v.muted = true; v.play().catch(() => {}); return true; })()"
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForElement",
+      "target": "main",
+      "selectors": [
+        ["#video-popover video"],
+        ["video"]
+      ]
+    },
+    {
+      "type": "waitForExpression",
+      "target": "main",
+      "expression": "(() => { const v = document.querySelector('#video-popover video, video'); if (!v) return false; v.muted = true; v.play().catch(() => {}); return true; })()"
     }
   ]
 }
