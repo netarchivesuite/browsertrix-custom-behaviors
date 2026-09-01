@@ -1,0 +1,14 @@
+{
+  "title": "TV MIDTVEST video",
+  "steps": [
+    {
+      "type": "click",
+      "target": "main",
+      "selectors": [
+        ["button.tv-hero-play-button"]
+      ],
+      "offsetX": 30,
+      "offsetY": 20
+    }
+  ]
+}
