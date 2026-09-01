@@ -1,5 +1,5 @@
 class TVMidtvestMP4Archive {
-  static id = "TVMidtvestMP4Archive-v4";
+  static id = "TVMidtvestMP4Archive-v5";
 
   static isMatch() {
     return /(^|\.)tvmidtvest\.dk$/i.test(
@@ -17,7 +17,8 @@ class TVMidtvestMP4Archive {
   async* run(ctx) {
     const {
       sleep,
-      waitForNetworkIdle
+      waitForNetworkIdle,
+      doExternalFetch
     } = ctx.Lib;
 
     // ============================================================
@@ -30,60 +31,23 @@ class TVMidtvestMP4Archive {
     const JW_PLAYBACK_BUTTON =
       ".jw-icon-playback[role='button']";
 
-    const PLAYER_WAIT_MS = 20000;
-    const MP4_DISCOVERY_MS = 20000;
+    // Total time allowed for discovering the MP4.
+    const MP4_DISCOVERY_TIMEOUT_MS = 30000;
 
-    const MAX_PLAY_ATTEMPTS = 20;
-    const PLAY_RETRY_MS = 750;
+    // How often to retry the optional playback stimulation.
+    const STIMULATE_INTERVAL_MS = 1200;
 
-    // Log download progress approximately every 64 MB.
+    // Progress log interval.
     const PROGRESS_BYTES =
       64 * 1024 * 1024;
 
-    // Hard safety limit.
+    // Safety cap.
     const MAX_FILE_SIZE =
       10 * 1024 * 1024 * 1024; // 10 GB
 
     // ============================================================
     // Helpers
     // ============================================================
-
-    const normalizeLabel = element =>
-      (
-        element?.getAttribute("aria-label") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-    const isPlayLabel = label =>
-      label === "afspil" ||
-      label === "play";
-
-    const isPauseLabel = label =>
-      label === "pause";
-
-    const isTargetMP4 = url => {
-      if (!url) {
-        return false;
-      }
-
-      try {
-        const parsed =
-          new URL(url);
-
-        return (
-          /\.storagefactory\.io$/i.test(
-            parsed.hostname
-          ) &&
-          /\/midtvest-ovp\/mp4\/.*\.mp4$/i.test(
-            parsed.pathname
-          )
-        );
-      } catch (_) {
-        return false;
-      }
-    };
 
     const formatMB = bytes =>
       (
@@ -92,15 +56,792 @@ class TVMidtvestMP4Archive {
         1024
       ).toFixed(1);
 
-    // ------------------------------------------------------------
-    // Parse:
+    const isTargetMP4 = value => {
+      if (
+        !value ||
+        typeof value !== "string"
+      ) {
+        return false;
+      }
+
+      try {
+        const url =
+          new URL(
+            value,
+            window.location.href
+          );
+
+        return (
+          /\.storagefactory\.io$/i.test(
+            url.hostname
+          ) &&
+          /\/midtvest-ovp\/mp4\/.*\.mp4$/i.test(
+            url.pathname
+          )
+        );
+      } catch (_) {
+        return false;
+      }
+    };
+
+    // ============================================================
+    // Candidate MP4 URLs
     //
-    // Content-Range: bytes 0-1048575/123456789
-    // ------------------------------------------------------------
+    // Higher score = stronger evidence this is the actual source
+    // being used by JW Player.
+    // ============================================================
+
+    const candidates =
+      new Map();
+
+    const addCandidate =
+      (
+        value,
+        score,
+        source
+      ) => {
+        if (!isTargetMP4(value)) {
+          return;
+        }
+
+        let url;
+
+        try {
+          url =
+            new URL(
+              value,
+              window.location.href
+            ).href;
+        } catch (_) {
+          return;
+        }
+
+        const existing =
+          candidates.get(url);
+
+        if (
+          !existing ||
+          score >
+            existing.score
+        ) {
+          candidates.set(
+            url,
+            {
+              url,
+              score,
+              source
+            }
+          );
+        }
+      };
+
+    const bestCandidate = () => {
+      if (!candidates.size) {
+        return null;
+      }
+
+      return [
+        ...candidates.values()
+      ].sort(
+        (a, b) =>
+          b.score -
+          a.score
+      )[0];
+    };
+
+    // ============================================================
+    // Recursively inspect JW configuration objects
+    // ============================================================
+
+    const inspectObject =
+      (
+        value,
+        score = 40,
+        source = "object",
+        depth = 0,
+        seen = new WeakSet()
+      ) => {
+        if (
+          value === null ||
+          value === undefined ||
+          depth > 7
+        ) {
+          return;
+        }
+
+        if (
+          typeof value === "string"
+        ) {
+          addCandidate(
+            value,
+            score,
+            source
+          );
+
+          return;
+        }
+
+        if (
+          typeof value !== "object"
+        ) {
+          return;
+        }
+
+        if (seen.has(value)) {
+          return;
+        }
+
+        seen.add(value);
+
+        if (Array.isArray(value)) {
+          for (
+            const item
+            of value
+          ) {
+            inspectObject(
+              item,
+              score,
+              source,
+              depth + 1,
+              seen
+            );
+          }
+
+          return;
+        }
+
+        for (
+          const [
+            key,
+            child
+          ] of Object.entries(
+            value
+          )
+        ) {
+          let childScore =
+            score;
+
+          const lowerKey =
+            key.toLowerCase();
+
+          if (
+            lowerKey === "file" ||
+            lowerKey === "src"
+          ) {
+            childScore += 15;
+          }
+
+          inspectObject(
+            child,
+            childScore,
+            `${source}.${key}`,
+            depth + 1,
+            seen
+          );
+        }
+      };
+
+    // ============================================================
+    // Locate JW Player instance
+    // ============================================================
+
+    const getJWPlayer = () => {
+      if (
+        typeof window.jwplayer !==
+        "function"
+      ) {
+        return null;
+      }
+
+      // Prefer the actual visible player id.
+      try {
+        const container =
+          document.querySelector(
+            ".jwplayer[id]"
+          );
+
+        if (container?.id) {
+          const player =
+            window.jwplayer(
+              container.id
+            );
+
+          if (player) {
+            return player;
+          }
+        }
+      } catch (_) {}
+
+      // Fallback to default player.
+      try {
+        return window.jwplayer();
+      } catch (_) {
+        return null;
+      }
+    };
+
+    // ============================================================
+    // Scan JW Player API
+    // ============================================================
+
+    const scanJWPlayer = () => {
+      const player =
+        getJWPlayer();
+
+      if (!player) {
+        return null;
+      }
+
+      // ----------------------------------------------------------
+      // Current playlist item
+      // ----------------------------------------------------------
+
+      try {
+        if (
+          typeof player.getPlaylistItem ===
+          "function"
+        ) {
+          const item =
+            player.getPlaylistItem();
+
+          if (item) {
+            // Current file.
+            addCandidate(
+              item.file,
+              110,
+              "jw.getPlaylistItem.file"
+            );
+
+            // JW documentation says sources represents the
+            // currently utilized source.
+            if (
+              Array.isArray(
+                item.sources
+              )
+            ) {
+              for (
+                const source
+                of item.sources
+              ) {
+                addCandidate(
+                  source?.file,
+                  115,
+                  "jw.getPlaylistItem.sources"
+                );
+              }
+            }
+
+            // Lower priority: configured alternatives.
+            if (
+              Array.isArray(
+                item.allSources
+              )
+            ) {
+              for (
+                const source
+                of item.allSources
+              ) {
+                addCandidate(
+                  source?.file,
+                  70,
+                  "jw.getPlaylistItem.allSources"
+                );
+              }
+            }
+
+            inspectObject(
+              item,
+              50,
+              "jw.getPlaylistItem"
+            );
+          }
+        }
+      } catch (_) {}
+
+      // ----------------------------------------------------------
+      // Entire JW playlist
+      // ----------------------------------------------------------
+
+      try {
+        if (
+          typeof player.getPlaylist ===
+          "function"
+        ) {
+          inspectObject(
+            player.getPlaylist(),
+            45,
+            "jw.getPlaylist"
+          );
+        }
+      } catch (_) {}
+
+      return player;
+    };
+
+    // ============================================================
+    // Scan DOM
+    // ============================================================
+
+    const scanDOM = () => {
+      for (
+        const video
+        of document.querySelectorAll(
+          "video"
+        )
+      ) {
+        // Strongest evidence.
+        addCandidate(
+          video.currentSrc,
+          130,
+          "video.currentSrc"
+        );
+
+        addCandidate(
+          video.src,
+          100,
+          "video.src"
+        );
+
+        for (
+          const source
+          of video.querySelectorAll(
+            "source[src]"
+          )
+        ) {
+          addCandidate(
+            source.src,
+            90,
+            "video source"
+          );
+        }
+      }
+    };
+
+    // ============================================================
+    // Scan Performance API
+    //
+    // An actual network request is very strong evidence that this
+    // is the source selected by the player.
+    // ============================================================
+
+    const scanPerformance = () => {
+      try {
+        for (
+          const entry
+          of performance.getEntriesByType(
+            "resource"
+          )
+        ) {
+          addCandidate(
+            entry.name,
+            125,
+            "performance resource"
+          );
+        }
+      } catch (_) {}
+    };
+
+    // ============================================================
+    // Scan embedded page markup as a low-priority fallback.
+    // ============================================================
+
+    const scanHTML = () => {
+      try {
+        let html =
+          document.documentElement
+            ?.innerHTML ||
+          "";
+
+        // Common JSON escaping.
+        html =
+          html
+            .replace(
+              /\\u002[fF]/g,
+              "/"
+            )
+            .replace(
+              /\\\//g,
+              "/"
+            )
+            .replace(
+              /&amp;/g,
+              "&"
+            );
+
+        const re =
+          /https?:\/\/[^"'<>\\\s]*storagefactory\.io\/midtvest-ovp\/mp4\/[^"'<>\\\s]+?\.mp4(?:\?[^"'<>\\\s]*)?/gi;
+
+        const matches =
+          html.match(re) ||
+          [];
+
+        for (
+          const url
+          of matches
+        ) {
+          addCandidate(
+            url,
+            20,
+            "page HTML"
+          );
+        }
+      } catch (_) {}
+    };
+
+    const scanEverything = () => {
+      scanDOM();
+      scanPerformance();
+      scanHTML();
+
+      return scanJWPlayer();
+    };
+
+    // ============================================================
+    // Watch future network activity
+    // ============================================================
+
+    let observer = null;
+
+    try {
+      observer =
+        new PerformanceObserver(
+          list => {
+            for (
+              const entry
+              of list.getEntries()
+            ) {
+              addCandidate(
+                entry.name,
+                125,
+                "PerformanceObserver"
+              );
+            }
+          }
+        );
+
+      observer.observe({
+        type: "resource",
+        buffered: true
+      });
+    } catch (_) {
+      observer = null;
+    }
+
+    // ============================================================
+    // Initial scan
+    //
+    // IMPORTANT:
+    // If MP4 is already exposed, nothing else is required.
+    // ============================================================
+
+    let player =
+      scanEverything();
+
+    let selected =
+      bestCandidate();
+
+    // ============================================================
+    // Open TV MIDTVEST popover IF needed.
+    //
+    // Failure here does NOT fail the behavior.
+    // Only failure to discover an MP4 eventually does.
+    // ============================================================
+
+    if (!selected) {
+      let heroButton = null;
+
+      for (
+        let i = 0;
+        i < 40;
+        i++
+      ) {
+        heroButton =
+          document.querySelector(
+            HERO_BUTTON
+          );
+
+        if (heroButton) {
+          break;
+        }
+
+        await sleep(250);
+      }
+
+      if (heroButton) {
+        try {
+          heroButton.scrollIntoView({
+            block: "center",
+            inline: "center"
+          });
+
+          await sleep(200);
+
+          heroButton.click();
+
+          yield {
+            msg:
+              "TV MIDTVEST: video popover initialization triggered"
+          };
+        } catch (error) {
+          yield {
+            msg:
+              `TV MIDTVEST: hero button click failed, continuing MP4 discovery: ` +
+              `${error.message}`
+          };
+        }
+      } else {
+        yield {
+          msg:
+            "TV MIDTVEST: hero button not found; continuing MP4 discovery anyway"
+        };
+      }
+    }
+
+    // ============================================================
+    // Discovery loop
+    //
+    // MP4 DISCOVERY IS THE ONLY SUCCESS REQUIREMENT.
+    //
+    // Everything below is just stimulation.
+    // ============================================================
+
+    const discoveryStarted =
+      Date.now();
+
+    let lastStimulate = 0;
+
+    while (
+      !selected &&
+      Date.now() -
+        discoveryStarted <
+        MP4_DISCOVERY_TIMEOUT_MS
+    ) {
+      player =
+        scanEverything() ||
+        player;
+
+      selected =
+        bestCandidate();
+
+      if (selected) {
+        break;
+      }
+
+      const now =
+        Date.now();
+
+      if (
+        now -
+          lastStimulate >=
+        STIMULATE_INTERVAL_MS
+      ) {
+        lastStimulate =
+          now;
+
+        // --------------------------------------------------------
+        // JW Player API stimulation
+        //
+        // State does NOT matter.
+        // --------------------------------------------------------
+
+        player =
+          getJWPlayer() ||
+          player;
+
+        if (player) {
+          try {
+            if (
+              typeof player.setMute ===
+              "function"
+            ) {
+              player.setMute(true);
+            }
+          } catch (_) {}
+
+          try {
+            if (
+              typeof player.play ===
+              "function"
+            ) {
+              player.play();
+            }
+          } catch (_) {}
+        }
+
+        // --------------------------------------------------------
+        // Native <video> stimulation
+        //
+        // Failure does NOT matter.
+        // --------------------------------------------------------
+
+        for (
+          const video
+          of document.querySelectorAll(
+            "video"
+          )
+        ) {
+          try {
+            video.muted = true;
+            video.defaultMuted = true;
+            video.volume = 0;
+            video.preload = "auto";
+
+            video.setAttribute(
+              "muted",
+              ""
+            );
+
+            video.setAttribute(
+              "playsinline",
+              ""
+            );
+
+            const promise =
+              video.play();
+
+            if (
+              promise &&
+              typeof promise.catch ===
+                "function"
+            ) {
+              promise.catch(
+                () => {}
+              );
+            }
+          } catch (_) {}
+        }
+
+        // --------------------------------------------------------
+        // JW playback button stimulation
+        //
+        // Again: we NEVER require aria-label="Pause".
+        // --------------------------------------------------------
+
+        try {
+          const button =
+            document.querySelector(
+              JW_PLAYBACK_BUTTON
+            );
+
+          const label =
+            (
+              button?.getAttribute(
+                "aria-label"
+              ) ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+          if (
+            button &&
+            (
+              label === "afspil" ||
+              label === "play"
+            )
+          ) {
+            button.click();
+          }
+        } catch (_) {}
+      }
+
+      await sleep(250);
+    }
+
+    // Final scan.
+    scanEverything();
+
+    selected =
+      bestCandidate();
+
+    observer?.disconnect();
+
+    // ============================================================
+    // ONLY startup failure condition
+    // ============================================================
+
+    if (!selected) {
+      yield {
+        msg:
+          `TV MIDTVEST: FAILED — no storagefactory.io MP4 discovered ` +
+          `within ${MP4_DISCOVERY_TIMEOUT_MS / 1000} seconds`
+      };
+
+      return;
+    }
+
+    const mp4Url =
+      selected.url;
+
+    yield {
+      msg:
+        `TV MIDTVEST: MP4 discovered via ${selected.source}: ${mp4Url}`
+    };
+
+    // ============================================================
+    // Stop ordinary playback.
+    //
+    // We now have the URL. Playback state is irrelevant.
+    // ============================================================
+
+    try {
+      player =
+        getJWPlayer() ||
+        player;
+
+      if (
+        player &&
+        typeof player.pause ===
+          "function"
+      ) {
+        player.pause();
+      }
+    } catch (_) {}
+
+    for (
+      const video
+      of document.querySelectorAll(
+        "video"
+      )
+    ) {
+      try {
+        video.pause();
+      } catch (_) {}
+    }
+
+    // ============================================================
+    // Fetch configuration
+    //
+    // Run in the TV MIDTVEST page context so Chromium supplies
+    // the TV MIDTVEST referrer.
+    // ============================================================
+
+    const baseFetchOptions = {
+      method: "GET",
+
+      mode: "cors",
+
+      credentials: "omit",
+
+      cache: "no-store",
+
+      referrer:
+        `${window.location.origin}/`,
+
+      referrerPolicy:
+        "origin"
+    };
+
+    // ============================================================
+    // Content-Range parser
+    //
+    // Example:
+    //
+    // Content-Range: bytes 0-1048575/287492834
+    // ============================================================
 
     const parseContentRange =
       value => {
-
         if (!value) {
           return null;
         }
@@ -129,536 +870,38 @@ class TVMidtvestMP4Archive {
       };
 
     // ============================================================
-    // MP4 network discovery
-    // ============================================================
-
-    const mp4Candidates =
-      new Set();
-
-    const scanForMP4 = () => {
-      // ----------------------------------------------------------
-      // <video> and <source>
-      // ----------------------------------------------------------
-
-      for (
-        const video
-        of document.querySelectorAll("video")
-      ) {
-        const urls = [
-          video.currentSrc,
-          video.src,
-
-          ...[
-            ...video.querySelectorAll(
-              "source[src]"
-            )
-          ].map(
-            source =>
-              source.src
-          )
-        ];
-
-        for (const url of urls) {
-          if (isTargetMP4(url)) {
-            mp4Candidates.add(
-              url
-            );
-          }
-        }
-      }
-
-      // ----------------------------------------------------------
-      // Browser resource requests
-      // ----------------------------------------------------------
-
-      for (
-        const entry
-        of performance.getEntriesByType(
-          "resource"
-        )
-      ) {
-        if (
-          isTargetMP4(entry.name)
-        ) {
-          mp4Candidates.add(
-            entry.name
-          );
-        }
-      }
-    };
-
-    // Start observing before opening the player.
-    let performanceObserver = null;
-
-    try {
-      performanceObserver =
-        new PerformanceObserver(
-          list => {
-            for (
-              const entry
-              of list.getEntries()
-            ) {
-              if (
-                isTargetMP4(
-                  entry.name
-                )
-              ) {
-                mp4Candidates.add(
-                  entry.name
-                );
-              }
-            }
-          }
-        );
-
-      performanceObserver.observe({
-        type: "resource",
-        buffered: true
-      });
-    } catch (_) {
-      performanceObserver = null;
-    }
-
-    scanForMP4();
-
-    // ============================================================
-    // 1. Open outer TV MIDTVEST video popover
-    // ============================================================
-
-    let heroButton = null;
-
-    const heroStarted =
-      Date.now();
-
-    while (
-      !heroButton &&
-      Date.now() - heroStarted <
-        PLAYER_WAIT_MS
-    ) {
-      heroButton =
-        document.querySelector(
-          HERO_BUTTON
-        );
-
-      if (!heroButton) {
-        await sleep(250);
-      }
-    }
-
-    if (!heroButton) {
-      performanceObserver?.disconnect();
-
-      yield {
-        msg:
-          "TV MIDTVEST: no hero video button found"
-      };
-
-      return;
-    }
-
-    heroButton.scrollIntoView({
-      block: "center",
-      inline: "center"
-    });
-
-    await sleep(300);
-
-    heroButton.click();
-
-    yield {
-      msg:
-        "TV MIDTVEST: video popover opened"
-    };
-
-    // ============================================================
-    // 2. Wait for JW Player controls and <video>
-    // ============================================================
-
-    let jwButton = null;
-    let video = null;
-
-    const jwStarted =
-      Date.now();
-
-    while (
-      Date.now() - jwStarted <
-        PLAYER_WAIT_MS
-    ) {
-      jwButton =
-        document.querySelector(
-          JW_PLAYBACK_BUTTON
-        );
-
-      video =
-        document.querySelector(
-          "video"
-        );
-
-      if (
-        jwButton &&
-        video
-      ) {
-        break;
-      }
-
-      await sleep(250);
-    }
-
-    if (!jwButton) {
-      performanceObserver?.disconnect();
-
-      yield {
-        msg:
-          "TV MIDTVEST: JW Player playback button not found"
-      };
-
-      return;
-    }
-
-    if (!video) {
-      performanceObserver?.disconnect();
-
-      yield {
-        msg:
-          "TV MIDTVEST: JW Player video element not found"
-      };
-
-      return;
-    }
-
-    yield {
-      msg:
-        `TV MIDTVEST: JW Player found, state="${jwButton.getAttribute(
-          "aria-label"
-        )}"`
-    };
-
-    // ============================================================
-    // 3. Make playback permissible without real user activation
+    // Completely consume one HTTP response.
     //
-    // Chromium permits muted playback much more readily.
-    // ============================================================
-
-    video.muted = true;
-    video.defaultMuted = true;
-    video.volume = 0;
-
-    video.setAttribute(
-      "muted",
-      ""
-    );
-
-    video.setAttribute(
-      "playsinline",
-      ""
-    );
-
-    video.preload = "auto";
-
-    // ============================================================
-    // 4. Click JW Player until aria-label becomes "Pause"
-    // ============================================================
-
-    let jwPlaying = false;
-
-    for (
-      let attempt = 1;
-      attempt <=
-        MAX_PLAY_ATTEMPTS;
-      attempt++
-    ) {
-      // JW Player may recreate this DOM node after each state
-      // transition, so always re-query it.
-      jwButton =
-        document.querySelector(
-          JW_PLAYBACK_BUTTON
-        );
-
-      video =
-        document.querySelector(
-          "video"
-        ) || video;
-
-      if (!jwButton) {
-        yield {
-          msg:
-            `TV MIDTVEST: JW playback control missing on attempt ${attempt}`
-        };
-
-        await sleep(
-          PLAY_RETRY_MS
-        );
-
-        continue;
-      }
-
-      if (video) {
-        video.muted = true;
-        video.defaultMuted = true;
-        video.volume = 0;
-      }
-
-      const label =
-        normalizeLabel(
-          jwButton
-        );
-
-      // ----------------------------------------------------------
-      // Already playing.
-      // ----------------------------------------------------------
-
-      if (
-        isPauseLabel(label)
-      ) {
-        jwPlaying = true;
-
-        yield {
-          msg:
-            `TV MIDTVEST: JW Player is PLAYING ` +
-            `(aria-label="${jwButton.getAttribute(
-              "aria-label"
-            )}")`
-        };
-
-        break;
-      }
-
-      // ----------------------------------------------------------
-      // Only click if control currently means PLAY.
-      //
-      // This avoids:
-      //
-      // Afspil → click → Pause → click again → Afspil
-      // ----------------------------------------------------------
-
-      if (
-        isPlayLabel(label)
-      ) {
-        yield {
-          msg:
-            `TV MIDTVEST: JW play attempt ` +
-            `${attempt}/${MAX_PLAY_ATTEMPTS}`
-        };
-
-        try {
-          jwButton.scrollIntoView({
-            block: "center",
-            inline: "center"
-          });
-
-          await sleep(150);
-
-          jwButton.click();
-        } catch (error) {
-          yield {
-            msg:
-              `TV MIDTVEST: JW click failed: ` +
-              `${error.name}: ${error.message}`
-          };
-        }
-      } else {
-        yield {
-          msg:
-            `TV MIDTVEST: JW state is ` +
-            `"${jwButton.getAttribute(
-              "aria-label"
-            )}"`
-        };
-      }
-
-      // Give JW Player time to perform its state transition.
-      await sleep(
-        PLAY_RETRY_MS
-      );
-
-      // ----------------------------------------------------------
-      // Check again AFTER the click.
-      // ----------------------------------------------------------
-
-      jwButton =
-        document.querySelector(
-          JW_PLAYBACK_BUTTON
-        );
-
-      const newLabel =
-        normalizeLabel(
-          jwButton
-        );
-
-      if (
-        isPauseLabel(
-          newLabel
-        )
-      ) {
-        jwPlaying = true;
-
-        yield {
-          msg:
-            `TV MIDTVEST: JW Player entered PLAYING state ` +
-            `after attempt ${attempt}`
-        };
-
-        break;
-      }
-    }
-
-    if (!jwPlaying) {
-      performanceObserver?.disconnect();
-
-      yield {
-        msg:
-          `TV MIDTVEST: could not make JW Player enter PLAYING ` +
-          `state after ${MAX_PLAY_ATTEMPTS} attempts`
-      };
-
-      return;
-    }
-
-    // ============================================================
-    // 5. Confirm underlying video advances
-    // ============================================================
-
-    video =
-      document.querySelector(
-        "video"
-      ) || video;
-
-    if (video) {
-      const before =
-        Number(
-          video.currentTime ||
-          0
-        );
-
-      await sleep(1200);
-
-      const after =
-        Number(
-          video.currentTime ||
-          0
-        );
-
-      yield {
-        msg:
-          `TV MIDTVEST: playback check ` +
-          `${before.toFixed(2)}s -> ` +
-          `${after.toFixed(2)}s`
-      };
-    }
-
-    // ============================================================
-    // 6. Discover storagefactory.io MP4
-    // ============================================================
-
-    const discoveryStarted =
-      Date.now();
-
-    let mp4Url = null;
-
-    while (
-      Date.now() -
-        discoveryStarted <
-      MP4_DISCOVERY_MS
-    ) {
-      scanForMP4();
-
-      if (
-        mp4Candidates.size
-      ) {
-        mp4Url =
-          [...mp4Candidates][0];
-
-        break;
-      }
-
-      await sleep(250);
-    }
-
-    scanForMP4();
-
-    if (
-      !mp4Url &&
-      mp4Candidates.size
-    ) {
-      mp4Url =
-        [...mp4Candidates][0];
-    }
-
-    performanceObserver?.disconnect();
-
-    if (!mp4Url) {
-      yield {
-        msg:
-          "TV MIDTVEST: storagefactory.io MP4 URL not discovered"
-      };
-
-      return;
-    }
-
-    yield {
-      msg:
-        `TV MIDTVEST: MP4 discovered: ${mp4Url}`
-    };
-
-    // ============================================================
-    // 7. Stop JW playback
+    // fetch() resolving is NOT sufficient.
     //
-    // We no longer need real-time playback. From now on, the
-    // crawler downloads the MP4 directly.
-    // ============================================================
-
-    video =
-      document.querySelector(
-        "video"
-      );
-
-    if (video) {
-      try {
-        video.pause();
-      } catch (_) {}
-    }
-
-    // ============================================================
-    // 8. Fetch options
-    //
-    // JavaScript cannot manually set Referer because Referer is
-    // browser-controlled. Using referrer/referrerPolicy keeps the
-    // request in TV MIDTVEST origin context.
-    // ============================================================
-
-    const baseFetchOptions = {
-      method: "GET",
-
-      mode: "cors",
-
-      credentials: "omit",
-
-      cache: "no-store",
-
-      referrer:
-        `${window.location.origin}/`,
-
-      referrerPolicy:
-        "origin"
-    };
-
-    // ============================================================
-    // 9. Consume a response body completely.
-    //
-    // fetch() by itself resolves after response HEADERS arrive.
-    //
-    // reader.read() until done === true is the important part:
-    // it forces Chromium to consume the complete response body.
+    // reader.done === true is our transfer-completion barrier.
     // ============================================================
 
     const consumeResponse =
       async function* (
         response,
-        expectedMaximum = null
+        aggregateOffset = 0
       ) {
         if (!response.body) {
           throw new Error(
-            "Response has no readable body"
+            "HTTP response has no readable body"
+          );
+        }
+
+        const declaredLength =
+          Number(
+            response.headers.get(
+              "content-length"
+            ) ||
+            0
+          );
+
+        if (
+          declaredLength >
+          MAX_FILE_SIZE
+        ) {
+          throw new Error(
+            `Response exceeds safety limit: ${declaredLength} bytes`
           );
         }
 
@@ -668,6 +911,13 @@ class TVMidtvestMP4Archive {
         let received = 0;
 
         let nextProgress =
+          (
+            Math.floor(
+              aggregateOffset /
+              PROGRESS_BYTES
+            ) +
+            1
+          ) *
           PROGRESS_BYTES;
 
         while (true) {
@@ -685,8 +935,12 @@ class TVMidtvestMP4Archive {
             value?.byteLength ||
             0;
 
+          const aggregate =
+            aggregateOffset +
+            received;
+
           if (
-            received >
+            aggregate >
             MAX_FILE_SIZE
           ) {
             try {
@@ -699,102 +953,128 @@ class TVMidtvestMP4Archive {
           }
 
           if (
-            expectedMaximum &&
-            received >
-              expectedMaximum
-          ) {
-            throw new Error(
-              "Received more bytes than expected"
-            );
-          }
-
-          if (
-            received >=
+            aggregate >=
             nextProgress
           ) {
             yield {
               msg:
-                `TV MIDTVEST: fetched ` +
+                `TV MIDTVEST: MP4 fetch progress ` +
                 `${formatMB(
-                  received
+                  aggregate
                 )} MB`
             };
 
-            nextProgress +=
-              PROGRESS_BYTES;
+            while (
+              aggregate >=
+              nextProgress
+            ) {
+              nextProgress +=
+                PROGRESS_BYTES;
+            }
           }
+        }
+
+        if (
+          declaredLength &&
+          received !==
+            declaredLength
+        ) {
+          throw new Error(
+            `Content-Length=${declaredLength}, ` +
+            `but received=${received}`
+          );
         }
 
         return received;
       };
 
+    const drain =
+      async function* (
+        response,
+        aggregateOffset
+      ) {
+        const generator =
+          consumeResponse(
+            response,
+            aggregateOffset
+          );
+
+        let bytes = 0;
+
+        while (true) {
+          const step =
+            await generator.next();
+
+          if (step.done) {
+            bytes =
+              step.value;
+
+            break;
+          }
+
+          yield step.value;
+        }
+
+        return bytes;
+      };
+
     // ============================================================
-    // 10. First try a normal complete GET.
+    // 1. Preferred archival request:
     //
-    // Best possible WARC representation:
+    // plain GET
     //
-    // HTTP 200
-    // Content-Length: full file
-    // complete MP4 body
+    // If the CDN returns HTTP 200, this is ideal because Browsertrix
+    // records one complete MP4 response.
     // ============================================================
 
-    let fullResponse = null;
+    let normalResponse = null;
+    let pageFetchFailure = null;
 
     try {
-      fullResponse =
+      normalResponse =
         await fetch(
           mp4Url,
           baseFetchOptions
         );
     } catch (error) {
+      pageFetchFailure =
+        error;
+
       yield {
         msg:
-          `TV MIDTVEST: normal MP4 GET failed: ` +
+          `TV MIDTVEST: browser-context full GET failed: ` +
           `${error.name}: ${error.message}`
       };
     }
 
     if (
-      fullResponse &&
-      fullResponse.status === 200
+      normalResponse &&
+      normalResponse.status === 200
     ) {
-      const declaredLength =
+      const contentLength =
         Number(
-          fullResponse.headers.get(
+          normalResponse.headers.get(
             "content-length"
-          ) || 0
+          ) ||
+          0
         );
-
-      if (
-        declaredLength >
-        MAX_FILE_SIZE
-      ) {
-        yield {
-          msg:
-            `TV MIDTVEST: MP4 is too large: ` +
-            `${declaredLength} bytes`
-        };
-
-        return;
-      }
 
       yield {
         msg:
-          `TV MIDTVEST: server returned HTTP 200` +
+          `TV MIDTVEST: HTTP 200 full MP4 response` +
           (
-            declaredLength
-              ? ` (${formatMB(
-                  declaredLength
-                )} MB)`
+            contentLength
+              ? `, ${formatMB(
+                  contentLength
+                )} MB`
               : ""
           )
       };
 
       const generator =
-        consumeResponse(
-          fullResponse,
-          declaredLength ||
-            null
+        drain(
+          normalResponse,
+          0
         );
 
       let received = 0;
@@ -816,23 +1096,7 @@ class TVMidtvestMP4Archive {
       } catch (error) {
         yield {
           msg:
-            `TV MIDTVEST: complete GET failed while reading: ` +
-            `${error.message}`
-        };
-
-        return;
-      }
-
-      if (
-        declaredLength &&
-        received !==
-          declaredLength
-      ) {
-        yield {
-          msg:
-            `TV MIDTVEST: INCOMPLETE — ` +
-            `Content-Length=${declaredLength}, ` +
-            `received=${received}`
+            `TV MIDTVEST: full MP4 transfer failed: ${error.message}`
         };
 
         return;
@@ -851,68 +1115,57 @@ class TVMidtvestMP4Archive {
 
       yield {
         msg:
-          `TV MIDTVEST: COMPLETE — ` +
+          `TV MIDTVEST: COMPLETE — full HTTP 200 MP4 archived, ` +
           `${received} bytes (${formatMB(
             received
-          )} MB) archived`
+          )} MB); behavior ending`
       };
 
       return;
     }
 
+    // If normal GET returned something other than 200, don't waste
+    // bandwidth reading an unwanted partial response.
+    if (
+      normalResponse &&
+      normalResponse.body
+    ) {
+      try {
+        await normalResponse.body.cancel();
+      } catch (_) {}
+    }
+
     // ============================================================
-    // 11. Progressive HTTP 206 fallback.
+    // 2. Progressive MP4 range mode
     //
-    // TV MIDTVEST/storagefactory.io may force byte ranges.
-    //
-    // We request:
+    // Explicit:
     //
     // Range: bytes=0-
     //
-    // If the CDN gives us the complete resource, we're done.
+    // This means byte zero through EOF.
     //
-    // If it chooses to return only part of the requested range,
-    // Content-Range tells us:
-    //
-    // bytes 0-1048575/123456789
-    //
-    // We then request:
-    //
-    // bytes=1048576-
-    //
-    // and continue until final byte total-1.
+    // If the CDN returns a smaller explicit Content-Range, continue
+    // exactly where that response stopped.
     // ============================================================
 
     yield {
       msg:
-        "TV MIDTVEST: using HTTP byte-range archival"
+        "TV MIDTVEST: attempting explicit byte-range archival"
     };
 
     let nextByte = 0;
-    let totalBytes = null;
+    let knownTotal = null;
+    let aggregateReceived = 0;
+    let rangeNumber = 0;
 
-    let totalReceived = 0;
-    let requestNumber = 0;
+    let rangeModeStarted =
+      false;
 
     while (true) {
-      requestNumber++;
+      rangeNumber++;
 
-      if (
-        totalBytes !== null &&
-        nextByte >=
-          totalBytes
-      ) {
-        break;
-      }
-
-      const rangeValue =
+      const range =
         `bytes=${nextByte}-`;
-
-      yield {
-        msg:
-          `TV MIDTVEST: range request ${requestNumber}: ` +
-          `${rangeValue}`
-      };
 
       let response;
 
@@ -925,52 +1178,44 @@ class TVMidtvestMP4Archive {
 
               headers: {
                 Range:
-                  rangeValue
+                  range
               }
             }
           );
+
+        rangeModeStarted =
+          true;
       } catch (error) {
+        pageFetchFailure =
+          error;
+
         yield {
           msg:
             `TV MIDTVEST: range request failed: ` +
             `${error.name}: ${error.message}`
         };
 
-        return;
+        break;
       }
 
       // ----------------------------------------------------------
-      // Server can legally ignore Range and return HTTP 200.
+      // Server ignored Range and sent entire representation.
       //
-      // That's fine: consume full response and finish.
+      // This is actually ideal.
       // ----------------------------------------------------------
 
       if (
         response.status === 200
       ) {
-        if (
-          nextByte !== 0
-        ) {
-          yield {
-            msg:
-              "TV MIDTVEST: server ignored Range during continuation; cannot safely establish byte coverage"
-          };
-
-          return;
-        }
-
-        const declaredLength =
-          Number(
-            response.headers.get(
-              "content-length"
-            ) || 0
-          );
+        yield {
+          msg:
+            "TV MIDTVEST: CDN ignored Range and returned HTTP 200 full MP4"
+        };
 
         const generator =
-          consumeResponse(
+          drain(
             response,
-            declaredLength ||
-              null
+            0
           );
 
         let received = 0;
@@ -992,33 +1237,22 @@ class TVMidtvestMP4Archive {
         } catch (error) {
           yield {
             msg:
-              `TV MIDTVEST: HTTP 200 body read failed: ` +
-              `${error.message}`
+              `TV MIDTVEST: HTTP 200 MP4 read failed: ${error.message}`
           };
 
           return;
         }
 
-        if (
-          declaredLength &&
-          received !==
-            declaredLength
-        ) {
-          yield {
-            msg:
-              `TV MIDTVEST: INCOMPLETE — expected ` +
-              `${declaredLength}, received ${received}`
-          };
-
-          return;
-        }
-
-        totalReceived =
+        aggregateReceived =
           received;
 
-        totalBytes =
-          declaredLength ||
-          received;
+        knownTotal =
+          Number(
+            response.headers.get(
+              "content-length"
+            ) ||
+            received
+          );
 
         break;
       }
@@ -1028,11 +1262,11 @@ class TVMidtvestMP4Archive {
       ) {
         yield {
           msg:
-            `TV MIDTVEST: range request returned unexpected ` +
-            `HTTP ${response.status}`
+            `TV MIDTVEST: unexpected HTTP ${response.status} ` +
+            `for ${range}`
         };
 
-        return;
+        break;
       }
 
       const contentRange =
@@ -1042,81 +1276,157 @@ class TVMidtvestMP4Archive {
           )
         );
 
-      if (!contentRange) {
-        yield {
-          msg:
-            "TV MIDTVEST: HTTP 206 response has no usable Content-Range"
-        };
+      // ----------------------------------------------------------
+      // If Content-Range is exposed, we can prove exact coverage.
+      // ----------------------------------------------------------
 
-        return;
-      }
-
-      if (
-        contentRange.start !==
-        nextByte
-      ) {
-        yield {
-          msg:
-            `TV MIDTVEST: unexpected Content-Range start: ` +
-            `wanted ${nextByte}, got ${contentRange.start}`
-        };
-
-        return;
-      }
-
-      if (
-        contentRange.total !==
-        null
-      ) {
+      if (contentRange) {
         if (
-          contentRange.total >
-          MAX_FILE_SIZE
+          contentRange.start !==
+          nextByte
         ) {
           yield {
             msg:
-              `TV MIDTVEST: MP4 exceeds safety limit: ` +
-              `${contentRange.total} bytes`
+              `TV MIDTVEST: INCOMPLETE — requested byte ${nextByte}, ` +
+              `server started at ${contentRange.start}`
           };
 
           return;
         }
 
         if (
-          totalBytes === null
+          contentRange.total !==
+          null
         ) {
-          totalBytes =
+          knownTotal =
             contentRange.total;
 
+          if (
+            knownTotal >
+            MAX_FILE_SIZE
+          ) {
+            yield {
+              msg:
+                `TV MIDTVEST: MP4 exceeds safety limit: ` +
+                `${knownTotal} bytes`
+            };
+
+            return;
+          }
+
+          if (
+            rangeNumber === 1
+          ) {
+            yield {
+              msg:
+                `TV MIDTVEST: MP4 size ${knownTotal} bytes ` +
+                `(${formatMB(
+                  knownTotal
+                )} MB)`
+            };
+          }
+        }
+
+        const expectedLength =
+          contentRange.end -
+          contentRange.start +
+          1;
+
+        const generator =
+          drain(
+            response,
+            aggregateReceived
+          );
+
+        let received = 0;
+
+        try {
+          while (true) {
+            const step =
+              await generator.next();
+
+            if (step.done) {
+              received =
+                step.value;
+
+              break;
+            }
+
+            yield step.value;
+          }
+        } catch (error) {
           yield {
             msg:
-              `TV MIDTVEST: MP4 size = ` +
-              `${totalBytes} bytes ` +
-              `(${formatMB(
-                totalBytes
-              )} MB)`
-          };
-        } else if (
-          totalBytes !==
-          contentRange.total
-        ) {
-          yield {
-            msg:
-              "TV MIDTVEST: MP4 size changed during range download"
+              `TV MIDTVEST: range body failed: ${error.message}`
           };
 
           return;
         }
+
+        if (
+          received !==
+          expectedLength
+        ) {
+          yield {
+            msg:
+              `TV MIDTVEST: INCOMPLETE RANGE — ` +
+              `expected ${expectedLength} bytes, received ${received}`
+          };
+
+          return;
+        }
+
+        aggregateReceived +=
+          received;
+
+        nextByte =
+          contentRange.end +
+          1;
+
+        yield {
+          msg:
+            `TV MIDTVEST: archived byte range ` +
+            `${contentRange.start}-${contentRange.end}` +
+            (
+              knownTotal
+                ? ` / ${knownTotal - 1}`
+                : ""
+            )
+        };
+
+        if (
+          knownTotal !== null &&
+          nextByte >=
+            knownTotal
+        ) {
+          break;
+        }
+
+        // CDN returned only part of our open-ended request.
+        // Continue at the exact next byte.
+        continue;
       }
 
-      const expectedRangeLength =
-        contentRange.end -
-        contentRange.start +
-        1;
+      // ----------------------------------------------------------
+      // Content-Range may be hidden by CORS response-header rules.
+      //
+      // But this request was explicitly:
+      //
+      // Range: bytes=N-
+      //
+      // Consume the response all the way to EOF.
+      // ----------------------------------------------------------
+
+      yield {
+        msg:
+          `TV MIDTVEST: HTTP 206 for ${range}; ` +
+          `Content-Range not exposed, consuming open-ended range to EOF`
+      };
 
       const generator =
-        consumeResponse(
+        drain(
           response,
-          expectedRangeLength
+          aggregateReceived
         );
 
       let received = 0;
@@ -1138,106 +1448,133 @@ class TVMidtvestMP4Archive {
       } catch (error) {
         yield {
           msg:
-            `TV MIDTVEST: range body read failed: ` +
-            `${error.message}`
+            `TV MIDTVEST: byte-range transfer failed: ${error.message}`
         };
 
         return;
       }
 
-      if (
-        received !==
-        expectedRangeLength
-      ) {
-        yield {
-          msg:
-            `TV MIDTVEST: INCOMPLETE RANGE — expected ` +
-            `${expectedRangeLength} bytes, got ${received}`
-        };
-
-        return;
-      }
-
-      totalReceived +=
+      aggregateReceived +=
         received;
 
-      // Next byte is the byte immediately following this
-      // Content-Range.
-      nextByte =
-        contentRange.end +
-        1;
-
-      yield {
-        msg:
-          `TV MIDTVEST: archived bytes ` +
-          `${contentRange.start}-${contentRange.end}` +
-          (
-            totalBytes
-              ? ` / ${totalBytes - 1}`
-              : ""
-          )
-      };
-
-      // ----------------------------------------------------------
-      // Definitive completion condition.
-      // ----------------------------------------------------------
-
-      if (
-        totalBytes !== null &&
-        nextByte >=
-          totalBytes
-      ) {
-        break;
-      }
-
-      // Avoid any tight loop if the server behaves strangely.
-      await sleep(100);
+      // An explicit open-ended range N- represents N through EOF.
+      // With no visible Content-Range there is no further byte
+      // boundary available to request.
+      break;
     }
 
     // ============================================================
-    // 12. Validate complete byte coverage
+    // Successful page-context range capture
     // ============================================================
 
     if (
-      totalBytes !== null &&
-      totalReceived !==
-        totalBytes
+      rangeModeStarted &&
+      aggregateReceived > 0
     ) {
+      if (
+        knownTotal !== null &&
+        aggregateReceived !==
+          knownTotal
+      ) {
+        yield {
+          msg:
+            `TV MIDTVEST: INCOMPLETE — expected ${knownTotal} bytes, ` +
+            `archived ${aggregateReceived}`
+        };
+
+        return;
+      }
+
+      if (
+        waitForNetworkIdle
+      ) {
+        await waitForNetworkIdle(
+          1000,
+          0
+        );
+      } else {
+        await sleep(1000);
+      }
+
       yield {
         msg:
-          `TV MIDTVEST: INCOMPLETE — MP4 size=${totalBytes}, ` +
-          `downloaded=${totalReceived}`
+          `TV MIDTVEST: COMPLETE — MP4 byte coverage archived, ` +
+          `${aggregateReceived} bytes ` +
+          `(${formatMB(
+            aggregateReceived
+          )} MB); behavior ending`
       };
 
       return;
     }
 
     // ============================================================
-    // 13. Wait until Browsertrix has finished recording traffic
+    // 3. Browsertrix external-fetch fallback
+    //
+    // Useful primarily when browser-context fetch() is blocked
+    // by CORS.
+    //
+    // Browsertrix's autoplay/autofetch system uses this same
+    // external-fetch mechanism for discovered media resources.
     // ============================================================
 
     if (
-      waitForNetworkIdle
+      typeof doExternalFetch ===
+      "function"
     ) {
-      await waitForNetworkIdle(
-        1000,
-        0
-      );
-    } else {
-      await sleep(1000);
+      yield {
+        msg:
+          "TV MIDTVEST: page-context fetch unavailable; trying Browsertrix external fetch"
+      };
+
+      let success = false;
+
+      try {
+        success =
+          await doExternalFetch(
+            mp4Url
+          );
+      } catch (error) {
+        yield {
+          msg:
+            `TV MIDTVEST: Browsertrix external fetch exception: ` +
+            `${error.message}`
+        };
+      }
+
+      if (success) {
+        if (
+          waitForNetworkIdle
+        ) {
+          await waitForNetworkIdle(
+            1000,
+            0
+          );
+        } else {
+          await sleep(1000);
+        }
+
+        yield {
+          msg:
+            "TV MIDTVEST: COMPLETE — Browsertrix external MP4 fetch completed; behavior ending"
+        };
+
+        return;
+      }
     }
 
     // ============================================================
-    // 14. Done
+    // MP4 discovery succeeded, but complete archival did not.
     // ============================================================
 
     yield {
       msg:
-        `TV MIDTVEST: COMPLETE — entire MP4 archived: ` +
-        `${totalReceived} bytes ` +
-        `(${formatMB(
-          totalReceived
-        )} MB); behavior ending`
+        `TV MIDTVEST: MP4 DISCOVERED but complete archive fetch failed` +
+        (
+          pageFetchFailure
+            ? `: ${pageFetchFailure.name}: ${pageFetchFailure.message}`
+            : ""
+        )
     };
   }
 }
