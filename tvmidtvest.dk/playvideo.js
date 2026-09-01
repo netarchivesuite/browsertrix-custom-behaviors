@@ -1,952 +1,481 @@
-class TVMidtvestHLSArchive {
-  static id = "TVMidtvestHLSArchive-v2";
+class TVMidtvestMP4Archive {
+  static id = "TVMidtvestMP4Archive-v3";
 
   static isMatch() {
-    return /(^|\.)tvmidtvest\.dk$/i.test(
-      window.location.hostname
-    );
+    return /(^|\.)tvmidtvest\.dk$/i.test(window.location.hostname);
   }
 
   static init() {
     return {};
   }
 
-  // Current Browsertrix docs use singular runInIframe.
-  // Keeping plural too does no harm with older/custom setups.
-  static runInIframe = false;
   static runInIframes = false;
 
   async* run(ctx) {
     const {
       sleep,
-      doExternalFetch,
       waitForNetworkIdle
     } = ctx.Lib;
-
-    // ============================================================
-    // Configuration
-    // ============================================================
 
     const HERO_BUTTON =
       "button.tv-hero-play-button";
 
-    // How long to wait for JW Player to expose an HLS manifest.
-    const DISCOVERY_MS = 15000;
+    const DISCOVERY_TIMEOUT = 20000;
 
-    // Number of media resources fetched simultaneously.
-    const FETCH_CONCURRENCY = 8;
+    // Log roughly every 64 MB while downloading.
+    const PROGRESS_BYTES =
+      64 * 1024 * 1024;
 
-    // Retry failed Browsertrix external fetches.
-    const FETCH_RETRIES = 3;
+    // Safety limit.
+    const MAX_FILE_SIZE =
+      10 * 1024 * 1024 * 1024; // 10 GB
 
-    // false:
-    //   Archive the rendition JW Player actually selected.
-    //
-    // If only a master playlist is discovered:
-    //   choose highest-bandwidth video + associated audio/subtitles.
-    //
-    // true:
-    //   Fetch ALL quality variants.
-    //
-    // Usually leave this false. Otherwise a 1080p/720p/480p/360p
-    // HLS stream may be downloaded four times.
-    const FETCH_ALL_VARIANTS = false;
+    const isTargetMP4 = url => {
+      if (!url) return false;
 
-    // Safety limit for EVENT/live playlists which have not yet
-    // received #EXT-X-ENDLIST.
-    const DYNAMIC_PLAYLIST_MAX_MS =
-      4 * 60 * 60 * 1000;
-
-    // ============================================================
-    // State
-    // ============================================================
-
-    const observedM3U8 = new Set();
-
-    // ============================================================
-    // Helpers
-    // ============================================================
-
-    const absoluteUrl = (value, base) => {
       try {
-        return new URL(value, base).href;
-      } catch (_) {
-        return null;
-      }
-    };
+        const u = new URL(url);
 
-    const isM3U8 = url =>
-      /\.m3u8(?:$|[?#])/i.test(url || "");
-
-    // ------------------------------------------------------------
-    // Parse HLS attribute lists:
-    //
-    // BANDWIDTH=1234567,AUDIO="audio-1",...
-    // ------------------------------------------------------------
-
-    const parseAttributes = line => {
-      const result = {};
-
-      const colon = line.indexOf(":");
-
-      const text =
-        colon >= 0
-          ? line.slice(colon + 1)
-          : line;
-
-      const re =
-        /([A-Z0-9-]+)=("[^"]*"|[^,]*)/gi;
-
-      let match;
-
-      while ((match = re.exec(text))) {
-        let value = match[2].trim();
-
-        if (
-          value.startsWith('"') &&
-          value.endsWith('"')
-        ) {
-          value = value.slice(1, -1);
-        }
-
-        result[
-          match[1].toUpperCase()
-        ] = value;
-      }
-
-      return result;
-    };
-
-    const getUriAttribute = line => {
-      const attributes =
-        parseAttributes(line);
-
-      return attributes.URI || null;
-    };
-
-    // ============================================================
-    // Observe network requests for .m3u8
-    // ============================================================
-
-    const collectPerformanceM3U8 = () => {
-      const resources =
-        performance.getEntriesByType(
-          "resource"
+        return (
+          /\.storagefactory\.io$/i.test(u.hostname) &&
+          /\/midtvest-ovp\/mp4\/.*\.mp4(?:$|[?#])/i.test(
+            u.pathname + u.search
+          )
         );
+      } catch (_) {
+        return false;
+      }
+    };
 
-      for (const resource of resources) {
-        if (isM3U8(resource.name)) {
-          observedM3U8.add(
-            resource.name
-          );
+    const candidates = new Set();
+
+    // ------------------------------------------------------------
+    // Find MP4 URLs already exposed by the player/browser.
+    // ------------------------------------------------------------
+
+    const scanForMP4 = () => {
+      // <video>
+      for (const video of document.querySelectorAll("video")) {
+        const urls = [
+          video.currentSrc,
+          video.src,
+          ...[...video.querySelectorAll("source[src]")]
+            .map(source => source.src)
+        ];
+
+        for (const url of urls) {
+          if (isTargetMP4(url)) {
+            candidates.add(url);
+          }
+        }
+      }
+
+      // Network resource entries are useful if JW Player uses
+      // currentSrc/blob URLs internally.
+      for (
+        const entry
+        of performance.getEntriesByType("resource")
+      ) {
+        if (isTargetMP4(entry.name)) {
+          candidates.add(entry.name);
         }
       }
     };
 
-    const observer =
-      new PerformanceObserver(list => {
-        for (
-          const entry of list.getEntries()
-        ) {
-          if (isM3U8(entry.name)) {
-            observedM3U8.add(
-              entry.name
-            );
+    // ------------------------------------------------------------
+    // Watch network activity before opening player.
+    // ------------------------------------------------------------
+
+    let observer = null;
+
+    try {
+      observer = new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) {
+          if (isTargetMP4(entry.name)) {
+            candidates.add(entry.name);
           }
         }
       });
 
-    try {
       observer.observe({
         type: "resource",
         buffered: true
       });
     } catch (_) {
-      try {
-        observer.observe({
-          entryTypes: ["resource"]
-        });
-      } catch (_) {
-        // Polling performance entries still works.
-      }
+      observer = null;
     }
 
-    // ============================================================
-    // Read playlist
-    //
-    // This is required because doExternalFetch() deliberately only
-    // tells us whether the crawler fetch succeeded; it does not
-    // return the response body.
-    // ============================================================
+    scanForMP4();
 
-    const fetchPlaylistText =
-      async url => {
+    // ------------------------------------------------------------
+    // Initialize JW Player if necessary.
+    // ------------------------------------------------------------
 
-        const response =
-          await fetch(url, {
-            credentials: "include",
+    if (!candidates.size) {
+      let button = null;
 
-            // We want the actual playlist content,
-            // not a possibly stale browser cache entry.
-            cache: "no-store"
-          });
+      for (let i = 0; i < 40; i++) {
+        button =
+          document.querySelector(HERO_BUTTON);
 
-        if (!response.ok) {
-          throw new Error(
-            `HTTP ${response.status} for ${url}`
-          );
-        }
+        if (button) break;
 
-        return await response.text();
-      };
+        await sleep(250);
+      }
 
-    // ============================================================
-    // Parse MASTER playlist
-    // ============================================================
+      if (!button) {
+        observer?.disconnect();
 
-    const parseMaster =
-      (text, baseUrl) => {
-
-        const lines = text
-          .split(/\r?\n/)
-          .map(line => line.trim())
-          .filter(Boolean);
-
-        const variants = [];
-        const renditions = [];
-        const support = [];
-
-        for (
-          let i = 0;
-          i < lines.length;
-          i++
-        ) {
-          const line = lines[i];
-
-          // ------------------------------------------------------
-          // Video variant
-          // ------------------------------------------------------
-
-          if (
-            line.startsWith(
-              "#EXT-X-STREAM-INF:"
-            )
-          ) {
-            const attributes =
-              parseAttributes(line);
-
-            let j = i + 1;
-
-            // Find following URI.
-            while (
-              j < lines.length &&
-              lines[j].startsWith("#")
-            ) {
-              j++;
-            }
-
-            if (j < lines.length) {
-              const url =
-                absoluteUrl(
-                  lines[j],
-                  baseUrl
-                );
-
-              if (url) {
-                variants.push({
-                  url,
-
-                  bandwidth:
-                    Number(
-                      attributes.BANDWIDTH ||
-                      attributes[
-                        "AVERAGE-BANDWIDTH"
-                      ] ||
-                      0
-                    ),
-
-                  audioGroup:
-                    attributes.AUDIO ||
-                    null,
-
-                  subtitlesGroup:
-                    attributes.SUBTITLES ||
-                    null
-                });
-              }
-            }
-
-            continue;
-          }
-
-          // ------------------------------------------------------
-          // Separate audio/subtitles
-          // ------------------------------------------------------
-
-          if (
-            line.startsWith(
-              "#EXT-X-MEDIA:"
-            )
-          ) {
-            const attributes =
-              parseAttributes(line);
-
-            const url =
-              attributes.URI
-                ? absoluteUrl(
-                    attributes.URI,
-                    baseUrl
-                  )
-                : null;
-
-            if (url) {
-              renditions.push({
-                url,
-
-                type:
-                  (
-                    attributes.TYPE ||
-                    ""
-                  ).toUpperCase(),
-
-                groupId:
-                  attributes[
-                    "GROUP-ID"
-                  ] || null,
-
-                name:
-                  attributes.NAME || "",
-
-                isDefault:
-                  (
-                    attributes.DEFAULT ||
-                    ""
-                  ).toUpperCase() ===
-                  "YES",
-
-                autoselect:
-                  (
-                    attributes.AUTOSELECT ||
-                    ""
-                  ).toUpperCase() ===
-                  "YES"
-              });
-            }
-
-            continue;
-          }
-
-          // ------------------------------------------------------
-          // Master-level encryption/session resources
-          // ------------------------------------------------------
-
-          if (
-            line.startsWith(
-              "#EXT-X-SESSION-KEY:"
-            ) ||
-            line.startsWith(
-              "#EXT-X-SESSION-DATA:"
-            )
-          ) {
-            const uri =
-              getUriAttribute(line);
-
-            if (uri) {
-              const url =
-                absoluteUrl(
-                  uri,
-                  baseUrl
-                );
-
-              if (url) {
-                support.push(url);
-              }
-            }
-          }
-        }
-
-        return {
-          variants,
-          renditions,
-          support
+        yield {
+          msg:
+            "TV MIDTVEST: no video play button found"
         };
-      };
 
-    // ============================================================
-    // Parse MEDIA playlist
-    // ============================================================
+        return;
+      }
 
-    const parseMedia =
-      (text, baseUrl) => {
+      button.scrollIntoView({
+        block: "center"
+      });
 
-        const lines = text
-          .split(/\r?\n/)
-          .map(line => line.trim())
-          .filter(Boolean);
+      await sleep(300);
 
-        const segments = [];
-        const support = [];
-
-        let targetDuration = 2;
-
-        for (const line of lines) {
-
-          // ------------------------------------------------------
-          // Playlist refresh timing
-          // ------------------------------------------------------
-
-          if (
-            line.startsWith(
-              "#EXT-X-TARGETDURATION:"
-            )
-          ) {
-            const value =
-              Number(
-                line.split(":", 2)[1]
-              );
-
-            if (
-              Number.isFinite(value) &&
-              value > 0
-            ) {
-              targetDuration = value;
-            }
-
-            continue;
-          }
-
-          // ------------------------------------------------------
-          // Encryption keys
-          // fMP4 init segments
-          // Low-latency HLS parts
-          // ------------------------------------------------------
-
-          if (
-            line.startsWith(
-              "#EXT-X-KEY:"
-            ) ||
-            line.startsWith(
-              "#EXT-X-MAP:"
-            ) ||
-            line.startsWith(
-              "#EXT-X-PART:"
-            )
-          ) {
-            const uri =
-              getUriAttribute(line);
-
-            if (
-              uri &&
-              !uri.startsWith("data:")
-            ) {
-              const url =
-                absoluteUrl(
-                  uri,
-                  baseUrl
-                );
-
-              if (url) {
-                support.push(url);
-              }
-            }
-
-            continue;
-          }
-
-          // HLS comments/instructions.
-          if (line.startsWith("#")) {
-            continue;
-          }
-
-          // Everything else is a media URI.
-          const url =
-            absoluteUrl(
-              line,
-              baseUrl
-            );
-
-          if (url) {
-            segments.push(url);
-          }
-        }
-
-        return {
-          endList:
-            lines.includes(
-              "#EXT-X-ENDLIST"
-            ),
-
-          targetDuration,
-
-          segments,
-          support
-        };
-      };
-
-    // ============================================================
-    // Browsertrix external fetch
-    // ============================================================
-
-    const archiveOne =
-      async url => {
-
-        for (
-          let attempt = 1;
-          attempt <= FETCH_RETRIES;
-          attempt++
-        ) {
-          try {
-            const success =
-              await doExternalFetch(
-                url
-              );
-
-            if (success) {
-              return true;
-            }
-          } catch (_) {
-            // retry below
-          }
-
-          if (
-            attempt <
-            FETCH_RETRIES
-          ) {
-            await sleep(
-              500 * attempt
-            );
-          }
-        }
-
-        return false;
-      };
-
-    // ============================================================
-    // Fetch resource list in controlled batches
-    // ============================================================
-
-    const archiveList =
-      async function* (
-        urls,
-        label
-      ) {
-        const unique =
-          [...new Set(urls)];
-
-        let successful = 0;
-
-        const failed = [];
-
-        for (
-          let offset = 0;
-          offset < unique.length;
-          offset += FETCH_CONCURRENCY
-        ) {
-          const batch =
-            unique.slice(
-              offset,
-              offset +
-                FETCH_CONCURRENCY
-            );
-
-          const results =
-            await Promise.all(
-              batch.map(
-                async url => ({
-                  url,
-
-                  ok:
-                    await archiveOne(
-                      url
-                    )
-                })
-              )
-            );
-
-          for (
-            const result of results
-          ) {
-            if (result.ok) {
-              successful++;
-            } else {
-              failed.push(
-                result.url
-              );
-            }
-          }
-
-          yield {
-            msg:
-              `TV MIDTVEST: ${label} ` +
-              `${Math.min(
-                offset +
-                  batch.length,
-                unique.length
-              )}/${unique.length} fetched`
-          };
-        }
-
-        return {
-          total:
-            unique.length,
-
-          successful,
-
-          failed
-        };
-      };
-
-    // ============================================================
-    // 1. Open TV MIDTVEST video player
-    // ============================================================
-
-    const button =
-      document.querySelector(
-        HERO_BUTTON
-      );
-
-    if (!button) {
-      observer.disconnect();
+      // Synthetic click is sufficient to initialize JW Player,
+      // even if Chromium subsequently refuses/interrupts playback.
+      button.click();
 
       yield {
         msg:
-          "TV MIDTVEST: no hero video button found"
+          "TV MIDTVEST: JW Player initialized"
       };
-
-      return;
     }
 
-    button.scrollIntoView({
-      block: "center"
-    });
+    // ------------------------------------------------------------
+    // Wait for storagefactory.io MP4.
+    // ------------------------------------------------------------
 
-    await sleep(300);
+    const discoveryStarted = Date.now();
 
-    button.click();
-
-    yield {
-      msg:
-        "TV MIDTVEST: player opened; looking for HLS manifest"
-    };
-
-    // ============================================================
-    // 2. Wait for JW Player to request .m3u8
-    // ============================================================
-
-    const discoveryStarted =
-      Date.now();
-
-    let triedMutedPlay = false;
+    let attemptedPlay = false;
 
     while (
-      Date.now() -
-        discoveryStarted <
-      DISCOVERY_MS
+      !candidates.size &&
+      Date.now() - discoveryStarted <
+        DISCOVERY_TIMEOUT
     ) {
-      collectPerformanceM3U8();
+      scanForMP4();
 
-      if (
-        observedM3U8.size > 0
-      ) {
-        // Give JW a little longer so separate audio/video
-        // playlists also appear.
-        await sleep(1500);
+      // Some JW Player configurations don't expose/request the
+      // source until playback is attempted.
+      if (!attemptedPlay) {
+        const video =
+          document.querySelector("video");
 
-        collectPerformanceM3U8();
+        if (video) {
+          attemptedPlay = true;
 
-        break;
-      }
+          video.muted = true;
+          video.defaultMuted = true;
+          video.preload = "auto";
 
-      // Some JW configurations don't request the actual manifest
-      // until play() has been attempted.
-      //
-      // We do NOT care whether playback succeeds.
-      const video =
-        document.querySelector(
-          "video"
-        );
-
-      if (
-        video &&
-        !triedMutedPlay
-      ) {
-        triedMutedPlay = true;
-
-        video.muted = true;
-        video.defaultMuted = true;
-
-        try {
-          await video.play();
-        } catch (_) {
-          // Expected in some Browsertrix/JW configurations.
-          //
-          // The only purpose is to make JW expose the stream.
+          try {
+            await video.play();
+          } catch (_) {
+            // Not important.
+            // We only want JW Player to expose the MP4 URL.
+          }
         }
       }
 
       await sleep(250);
     }
 
-    collectPerformanceM3U8();
+    scanForMP4();
 
-    observer.disconnect();
+    observer?.disconnect();
 
-    // ============================================================
-    // 3. Stop actual playback
+    if (!candidates.size) {
+      yield {
+        msg:
+          "TV MIDTVEST: storagefactory.io MP4 not discovered"
+      };
+
+      return;
+    }
+
+    // ------------------------------------------------------------
+    // Stop real-time playback.
     //
-    // From here forward we fetch the stream ourselves.
-    // ============================================================
+    // We are going to archive the MP4 directly instead.
+    // ------------------------------------------------------------
 
-    const video =
-      document.querySelector(
-        "video"
-      );
-
-    if (
-      video &&
-      !video.paused
-    ) {
+    for (const video of document.querySelectorAll("video")) {
       try {
         video.pause();
       } catch (_) {}
     }
 
-    if (
-      !observedM3U8.size
-    ) {
+    const mp4Url =
+      [...candidates][0];
+
+    yield {
+      msg:
+        `TV MIDTVEST: MP4 discovered: ${mp4Url}`
+    };
+
+    // ------------------------------------------------------------
+    // Browser-context request.
+    //
+    // For a cross-origin request this deliberately sends:
+    //
+    // Referer: https://www.tvmidtvest.dk/
+    //
+    // when running on www.tvmidtvest.dk.
+    // ------------------------------------------------------------
+
+    const fetchOptions = {
+      method: "GET",
+      mode: "cors",
+      credentials: "omit",
+      cache: "no-store",
+
+      referrer:
+        `${window.location.origin}/`,
+
+      referrerPolicy:
+        "origin"
+    };
+
+    // ------------------------------------------------------------
+    // Consume an HTTP response completely.
+    //
+    // Merely awaiting fetch() is NOT enough:
+    // fetch() resolves when response headers arrive.
+    //
+    // Reading until reader.done ensures Chromium actually
+    // downloads the entire response body.
+    // ------------------------------------------------------------
+
+    const consumeResponse =
+      async function* (response, description) {
+
+        if (!response.body) {
+          throw new Error(
+            "Response has no readable body"
+          );
+        }
+
+        const contentLength =
+          Number(
+            response.headers.get(
+              "content-length"
+            ) || 0
+          );
+
+        if (
+          contentLength >
+          MAX_FILE_SIZE
+        ) {
+          throw new Error(
+            `Media exceeds safety limit: ` +
+            `${contentLength} bytes`
+          );
+        }
+
+        const reader =
+          response.body.getReader();
+
+        let received = 0;
+        let nextReport =
+          PROGRESS_BYTES;
+
+        while (true) {
+          const {
+            done,
+            value
+          } = await reader.read();
+
+          if (done) break;
+
+          received +=
+            value?.byteLength || 0;
+
+          if (
+            received >
+            MAX_FILE_SIZE
+          ) {
+            try {
+              await reader.cancel();
+            } catch (_) {}
+
+            throw new Error(
+              "Media exceeded safety limit while downloading"
+            );
+          }
+
+          if (
+            received >= nextReport
+          ) {
+            yield {
+              msg:
+                `TV MIDTVEST: ${description}: ` +
+                `${(
+                  received /
+                  1024 /
+                  1024
+                ).toFixed(1)} MB fetched`
+            };
+
+            nextReport +=
+              PROGRESS_BYTES;
+          }
+        }
+
+        return {
+          received,
+          contentLength
+        };
+      };
+
+    // ============================================================
+    // METHOD 1 — preferred
+    //
+    // Request the MP4 normally.
+    //
+    // If storagefactory returns HTTP 200, this gives Browsertrix
+    // one complete MP4 response in the WARC. This is preferable
+    // to hundreds of separate 206 range captures.
+    // ============================================================
+
+    let response = null;
+
+    try {
+      response =
+        await fetch(
+          mp4Url,
+          fetchOptions
+        );
+
       yield {
         msg:
-          "TV MIDTVEST: no .m3u8 request discovered"
+          `TV MIDTVEST: full MP4 request returned HTTP ` +
+          `${response.status}`
+      };
+    } catch (error) {
+      yield {
+        msg:
+          `TV MIDTVEST: full MP4 fetch failed: ` +
+          `${error.name}: ${error.message}`
+      };
+    }
+
+    if (
+      response &&
+      response.status === 200
+    ) {
+      const generator =
+        consumeResponse(
+          response,
+          "full MP4"
+        );
+
+      let result = null;
+
+      while (true) {
+        const step =
+          await generator.next();
+
+        if (step.done) {
+          result = step.value;
+          break;
+        }
+
+        yield step.value;
+      }
+
+      if (
+        result.contentLength &&
+        result.received !==
+          result.contentLength
+      ) {
+        yield {
+          msg:
+            `TV MIDTVEST: INCOMPLETE — expected ` +
+            `${result.contentLength} bytes but received ` +
+            `${result.received}`
+        };
+
+        return;
+      }
+
+      if (waitForNetworkIdle) {
+        await waitForNetworkIdle(
+          1000,
+          0
+        );
+      } else {
+        await sleep(1000);
+      }
+
+      yield {
+        msg:
+          `TV MIDTVEST: COMPLETE — full MP4 archived, ` +
+          `${result.received} bytes fetched`
       };
 
       return;
     }
 
+    // ============================================================
+    // METHOD 2 — Range fallback
+    //
+    // storagefactory may insist on progressive/range semantics.
+    //
+    // "bytes=0-" means:
+    //
+    // byte zero THROUGH THE END OF THE FILE.
+    //
+    // So this remains a single complete media transfer.
+    // ============================================================
+
     yield {
       msg:
-        `TV MIDTVEST: discovered ` +
-        `${observedM3U8.size} HLS playlist request(s)`
+        "TV MIDTVEST: trying open-ended byte-range fetch"
     };
 
-    // ============================================================
-    // 4. Read observed playlists
-    // ============================================================
+    let rangeResponse;
 
-    const playlistInfo =
-      new Map();
-
-    for (
-      const url of observedM3U8
-    ) {
-      try {
-        const text =
-          await fetchPlaylistText(
-            url
-          );
-
-        const isMaster =
-          /#EXT-X-STREAM-INF:/i.test(
-            text
-          );
-
-        playlistInfo.set(
-          url,
+    try {
+      rangeResponse =
+        await fetch(
+          mp4Url,
           {
-            url,
-            text,
-            isMaster
+            ...fetchOptions,
+
+            headers: {
+              Range:
+                "bytes=0-"
+            }
           }
         );
-      } catch (error) {
-        yield {
-          msg:
-            `TV MIDTVEST: could not read playlist ` +
-            `${url}: ${error.message}`
-        };
-      }
-    }
+    } catch (error) {
+      yield {
+        msg:
+          `TV MIDTVEST: range fetch failed: ` +
+          `${error.name}: ${error.message}`
+      };
 
-    const observedMedia =
-      [...playlistInfo.values()]
-        .filter(
-          playlist =>
-            !playlist.isMaster
-        );
-
-    const observedMasters =
-      [...playlistInfo.values()]
-        .filter(
-          playlist =>
-            playlist.isMaster
-        );
-
-    // ============================================================
-    // 5. Decide which rendition(s) to archive
-    // ============================================================
-
-    const mediaPlaylistUrls =
-      new Set(
-        observedMedia.map(
-          playlist =>
-            playlist.url
-        )
-      );
-
-    const manifestUrls =
-      new Set(
-        observedM3U8
-      );
-
-    const masterSupport =
-      new Set();
-
-    // If JW already requested a media playlist, that's the best
-    // indication of the actual rendition in use.
-    //
-    // Only fall back to master-playlist selection if JW didn't.
-    if (
-      !mediaPlaylistUrls.size
-    ) {
-      for (
-        const master
-        of observedMasters
-      ) {
-        const parsed =
-          parseMaster(
-            master.text,
-            master.url
-          );
-
-        parsed.support.forEach(
-          url =>
-            masterSupport.add(
-              url
-            )
-        );
-
-        // --------------------------------------------------------
-        // Optional mode: archive every quality.
-        // --------------------------------------------------------
-
-        if (
-          FETCH_ALL_VARIANTS
-        ) {
-          parsed.variants.forEach(
-            variant =>
-              mediaPlaylistUrls.add(
-                variant.url
-              )
-          );
-
-          parsed.renditions.forEach(
-            rendition =>
-              mediaPlaylistUrls.add(
-                rendition.url
-              )
-          );
-
-          continue;
-        }
-
-        // --------------------------------------------------------
-        // Default:
-        // highest bandwidth video.
-        // --------------------------------------------------------
-
-        const variant =
-          [...parsed.variants]
-            .sort(
-              (a, b) =>
-                b.bandwidth -
-                a.bandwidth
-            )[0];
-
-        if (!variant) {
-          continue;
-        }
-
-        mediaPlaylistUrls.add(
-          variant.url
-        );
-
-        // --------------------------------------------------------
-        // Associated audio
-        // --------------------------------------------------------
-
-        if (
-          variant.audioGroup
-        ) {
-          const audio =
-            parsed.renditions
-              .filter(
-                rendition =>
-                  rendition.type ===
-                    "AUDIO" &&
-                  rendition.groupId ===
-                    variant.audioGroup
-              );
-
-          const chosen =
-            audio.find(
-              rendition =>
-                rendition.isDefault
-            ) ||
-            audio.find(
-              rendition =>
-                rendition.autoselect
-            ) ||
-            audio[0];
-
-          if (chosen) {
-            mediaPlaylistUrls.add(
-              chosen.url
-            );
-          }
-        }
-
-        // --------------------------------------------------------
-        // Associated subtitles
-        // --------------------------------------------------------
-
-        if (
-          variant.subtitlesGroup
-        ) {
-          const subtitles =
-            parsed.renditions
-              .filter(
-                rendition =>
-                  rendition.type ===
-                    "SUBTITLES" &&
-                  rendition.groupId ===
-                    variant.subtitlesGroup
-              );
-
-          const chosen =
-            subtitles.find(
-              rendition =>
-                rendition.isDefault
-            ) ||
-            subtitles.find(
-              rendition =>
-                rendition.autoselect
-            ) ||
-            subtitles[0];
-
-          if (chosen) {
-            mediaPlaylistUrls.add(
-              chosen.url
-            );
-          }
-        }
-      }
+      return;
     }
 
     if (
-      !mediaPlaylistUrls.size
+      rangeResponse.status !== 206 &&
+      rangeResponse.status !== 200
     ) {
       yield {
         msg:
-          "TV MIDTVEST: HLS found, but no media playlist could be selected"
+          `TV MIDTVEST: range request failed with HTTP ` +
+          `${rangeResponse.status}`
       };
 
       return;
@@ -954,334 +483,50 @@ class TVMidtvestHLSArchive {
 
     yield {
       msg:
-        `TV MIDTVEST: tracking ` +
-        `${mediaPlaylistUrls.size} active/selected media playlist(s)`
+        `TV MIDTVEST: open range returned HTTP ` +
+        `${rangeResponse.status}; downloading to EOF`
     };
 
-    // ============================================================
-    // 6. Parse media playlists
-    // ============================================================
-
-    const allSupport =
-      new Set(masterSupport);
-
-    const allSegments =
-      new Set();
-
-    const mediaStates =
-      new Map();
-
-    const loadMediaPlaylist =
-      async url => {
-
-        const text =
-          await fetchPlaylistText(
-            url
-          );
-
-        manifestUrls.add(url);
-
-        const parsed =
-          parseMedia(
-            text,
-            url
-          );
-
-        mediaStates.set(
-          url,
-          parsed
-        );
-
-        parsed.support.forEach(
-          resource =>
-            allSupport.add(
-              resource
-            )
-        );
-
-        parsed.segments.forEach(
-          segment =>
-            allSegments.add(
-              segment
-            )
-        );
-
-        return parsed;
-      };
-
-    for (
-      const url
-      of mediaPlaylistUrls
-    ) {
-      try {
-        await loadMediaPlaylist(
-          url
-        );
-      } catch (error) {
-        yield {
-          msg:
-            `TV MIDTVEST: failed to read media playlist ` +
-            `${url}: ${error.message}`
-        };
-
-        return;
-      }
-    }
-
-    // ============================================================
-    // 7. If this is EVENT/live HLS, wait for ENDLIST
-    //
-    // Normal TV MIDTVEST article videos should already have
-    // #EXT-X-ENDLIST.
-    //
-    // But if the playlist is still growing, refresh it until it
-    // becomes finite.
-    // ============================================================
-
-    const dynamicStarted =
-      Date.now();
-
-    while (
-      [...mediaStates.values()]
-        .some(
-          state =>
-            !state.endList
-        )
-    ) {
-      if (
-        Date.now() -
-          dynamicStarted >
-        DYNAMIC_PLAYLIST_MAX_MS
-      ) {
-        yield {
-          msg:
-            "TV MIDTVEST: dynamic HLS did not reach #EXT-X-ENDLIST before safety cap"
-        };
-
-        return;
-      }
-
-      const pending =
-        [...mediaStates.entries()]
-          .filter(
-            ([, state]) =>
-              !state.endList
-          );
-
-      const waitSeconds =
-        Math.max(
-          1,
-
-          Math.min(
-            ...pending.map(
-              ([, state]) =>
-                state.targetDuration ||
-                2
-            )
-          )
-        );
-
-      await sleep(
-        waitSeconds * 1000
+    const rangeGenerator =
+      consumeResponse(
+        rangeResponse,
+        "MP4 byte range"
       );
 
-      for (
-        const [url]
-        of pending
-      ) {
-        const before =
-          allSegments.size;
-
-        try {
-          const state =
-            await loadMediaPlaylist(
-              url
-            );
-
-          const added =
-            allSegments.size -
-            before;
-
-          yield {
-            msg:
-              `TV MIDTVEST: refreshed HLS playlist; ` +
-              `${added} new segment(s), ` +
-              `endList=${state.endList}`
-          };
-        } catch (error) {
-          yield {
-            msg:
-              `TV MIDTVEST: playlist refresh failed ` +
-              `${url}: ${error.message}`
-          };
-        }
-      }
-    }
-
-    // ============================================================
-    // We now know the complete finite stream.
-    // ============================================================
-
-    yield {
-      msg:
-        `TV MIDTVEST: complete finite HLS manifest found — ` +
-        `${allSegments.size} segment URL(s), ` +
-        `${allSupport.size} key/init/support URL(s)`
-    };
-
-    // ============================================================
-    // 8. Archive manifests, keys, init segments etc.
-    // ============================================================
-
-    const preliminary = [
-      ...manifestUrls,
-      ...allSupport
-    ];
-
-    const preliminaryGenerator =
-      archiveList(
-        preliminary,
-        "manifest/support resources"
-      );
-
-    let preliminaryResult =
-      null;
+    let rangeResult = null;
 
     while (true) {
       const step =
-        await preliminaryGenerator.next();
+        await rangeGenerator.next();
 
       if (step.done) {
-        preliminaryResult =
+        rangeResult =
           step.value;
-
         break;
       }
 
       yield step.value;
     }
 
+    // "Range: bytes=0-" explicitly requests from byte zero until
+    // the end of the representation. Reaching EOF therefore gives
+    // us complete byte coverage.
     if (
-      preliminaryResult.failed
-        .length
+      rangeResult.contentLength &&
+      rangeResult.received !==
+        rangeResult.contentLength
     ) {
       yield {
         msg:
-          `TV MIDTVEST: INCOMPLETE — ` +
-          `${preliminaryResult.failed.length} ` +
-          `manifest/support resource(s) failed`
+          `TV MIDTVEST: INCOMPLETE — range body expected ` +
+          `${rangeResult.contentLength} bytes but received ` +
+          `${rangeResult.received}`
       };
 
       return;
     }
 
-    // ============================================================
-    // 9. Put segments in playlist order where possible.
-    //
-    // Batches are sequential:
-    //
-    // batch 1 must finish
-    // before batch 2 starts
-    //
-    // ...
-    //
-    // Therefore once the FINAL batch resolves we know every
-    // previous segment fetch has also resolved.
-    // ============================================================
-
-    const orderedSegments = [];
-    const seenSegment =
-      new Set();
-
-    for (
-      const state
-      of mediaStates.values()
-    ) {
-      for (
-        const url
-        of state.segments
-      ) {
-        if (
-          !seenSegment.has(url)
-        ) {
-          seenSegment.add(url);
-
-          orderedSegments.push(
-            url
-          );
-        }
-      }
-    }
-
-    // In an EVENT playlist older segments can disappear from the
-    // sliding window before ENDLIST. Keep anything discovered on
-    // previous refreshes too.
-    for (
-      const url
-      of allSegments
-    ) {
-      if (
-        !seenSegment.has(url)
-      ) {
-        seenSegment.add(url);
-
-        orderedSegments.push(
-          url
-        );
-      }
-    }
-
-    // ============================================================
-    // 10. Archive ALL HLS segments
-    // ============================================================
-
-    const segmentGenerator =
-      archiveList(
-        orderedSegments,
-        "HLS segments"
-      );
-
-    let segmentResult = null;
-
-    while (true) {
-      const step =
-        await segmentGenerator.next();
-
-      if (step.done) {
-        segmentResult =
-          step.value;
-
-        break;
-      }
-
-      yield step.value;
-    }
-
-    // ============================================================
-    // 11. Don't falsely report complete if any segment failed.
-    // ============================================================
-
-    if (
-      segmentResult.failed.length
-    ) {
-      yield {
-        msg:
-          `TV MIDTVEST: INCOMPLETE — ` +
-          `${segmentResult.failed.length}/` +
-          `${segmentResult.total} segment(s) ` +
-          `failed after ${FETCH_RETRIES} attempts`
-      };
-
-      return;
-    }
-
-    // ============================================================
-    // 12. Final Browsertrix network barrier
-    // ============================================================
-
-    if (
-      waitForNetworkIdle
-    ) {
+    if (waitForNetworkIdle) {
       await waitForNetworkIdle(
         1000,
         0
@@ -1290,26 +535,10 @@ class TVMidtvestHLSArchive {
       await sleep(1000);
     }
 
-    // ============================================================
-    // 13. DONE
-    //
-    // Reaching here means:
-    //
-    // - playlist ended with ENDLIST
-    // - every listed media segment was enumerated
-    // - every segment doExternalFetch() resolved successfully
-    // - all keys/init files were fetched
-    // - Browsertrix network became idle
-    //
-    // No need to wait for JW playback.
-    // ============================================================
-
     yield {
       msg:
-        `TV MIDTVEST: COMPLETE — all ` +
-        `${segmentResult.total} HLS segment(s) ` +
-        `plus manifests/support resources fetched; ` +
-        `behavior ending now`
+        `TV MIDTVEST: COMPLETE — complete MP4 range ` +
+        `0-EOF archived, ${rangeResult.received} bytes fetched`
     };
   }
 }
