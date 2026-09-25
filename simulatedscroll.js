@@ -51,7 +51,7 @@ class SimulatedScroll {
     bottomSettleMs: [2500, 4500],  // ventetid ved bunden (lazy-load)
     bottomStableChecks: 2,         // antal checks uden nyt indhold før stop
     maxStuckSteps: 3,              // ryk uden bevægelse før stop
-    maxDurationMs: 30 * 60 * 1000, // sikkerhedsloft (hold under --behaviorTimeout)
+    maxDurationMs: 15 * 60 * 1000, // sikkerhedsloft (hold under --behaviorTimeout)
     logEverySteps: 5,              // log hvert N'te ryk (undgår log-spam)
     seed: null,                    // null = tilfældigt; sæt tal for genskabelig plan
 
