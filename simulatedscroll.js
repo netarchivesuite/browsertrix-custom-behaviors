@@ -1,3 +1,24 @@
+//ABUNAME:simulatedscroll.js
+//ABUGOAL:simulate repeated humanlike scroll until bottom of page, keep going till no more content is loaded or time runs out.
+//ABUTESTURL:https://www.sotwe.com/Frede_Vad
+
+/**
+ * Author: Thomas Smedebøl
+ * Created: 2026-09-25
+ * Last modified: 2026-09-25
+ * Version: 1.0.0
+ *
+ * Purpose: simulate repeated humanlike scroll until bottom of page
+ * Scope: all pages
+ * Assumptions: More content will load on bottom reached, but we have to go slowly.
+ * Dependencies:
+ * Config: Set Behavior Limit to 930 seconds.
+ * Limitations: 
+ * Changelog:
+ *  - 1.0.0: Initial version
+ */
+
+
 /**
  * SimulatedScroll — forsigtig, menneskelignende autoscroll til Browsertrix Crawler.
  *
