@@ -49,12 +49,12 @@ class SotweAPI {
     detectWaitMs: 3000,             // vent på sidens egne API-kald
     nudgeScrolls: 3,                // scroll-til-bund forsøg hvis intet er fundet
     nudgeGapMs: 3000,
-    pageGapMs: [8000, 12000],       // pause mellem API-kald (sotwe-serveren)
+    pageGapMs: [6000, 10000],       // pause mellem API-kald (sotwe-serveren)
     fetchTimeoutMs: 30000,
     retries: 3,                     // ved 429/5xx/netværksfejl
     retryBackoffMs: [10000, 30000, 60000],
     maxPages: 1000,
-    maxDurationMs: 55 * 60 * 1000,  // hold under --behaviorTimeout
+    maxDurationMs: 55 * 360 * 1000,  // hold under --behaviorTimeout
     dateToleranceMs: 24 * 3600 * 1000, // tolerance før "datoer springer frem" = løkke
     queueApiUrls: true,             // læg API-URL'erne selv i køen
     queuePageUrls: true,            // læg øvrige udtrukne URL'er i køen
