@@ -1,3 +1,7 @@
+//ABUNAME:sotwe.com/apifetcher.js
+//ABUGOAL:Detect api json chains. When found follow the chain and get all json files + extract urls from them and add to the queue.
+//ABUTESTURL:https://www.sotwe.com/Frede_Vad
+
 /**
  * SotweAPI — Browsertrix custom behavior der arkiverer sotwe.com's paginerede API-kæder.
  *
