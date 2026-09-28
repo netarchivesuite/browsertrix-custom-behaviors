@@ -49,7 +49,7 @@ class SotweAPI {
     detectWaitMs: 3000,             // vent på sidens egne API-kald
     nudgeScrolls: 3,                // scroll-til-bund forsøg hvis intet er fundet
     nudgeGapMs: 3000,
-    pageGapMs: [6000, 10000],       // pause mellem API-kald (sotwe-serveren)
+    pageGapMs: [8000, 12000],       // pause mellem API-kald (sotwe-serveren)
     fetchTimeoutMs: 30000,
     retries: 3,                     // ved 429/5xx/netværksfejl
     retryBackoffMs: [10000, 30000, 60000],
