@@ -8,7 +8,7 @@ class ScrollAndClick {
     "span[role=treeitem]",
     "button#load-more-posts",
     "#pagenation",
-    "button.CybotCookiebotDialogBodyButton"
+    "button.CybotCookiebotDialogBodyButton"    
   ];
   triggerwords = [
     "se mere",
@@ -23,7 +23,8 @@ class ScrollAndClick {
     "Tidligere opslag",
     "Indlæs flere",
     "Indlæs flere artikler",
-    "Hent flere resultater"
+    "Hent flere resultater",
+    "Vis flere koncerter"
   ].map(t => t.toLowerCase());
 
   static isMatch(url) {
