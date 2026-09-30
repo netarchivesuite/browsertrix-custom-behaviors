@@ -17,7 +17,9 @@ class ScrollAndClick {
     "indlæs flere nyheder",
     "hent flere",
     "vis flere",
-    "hent flere artikler"
+    "hent flere artikler",
+    "hent flere resultater",
+    "vis flere koncerter"
   ].map(t => t.toLowerCase());
 
   static isMatch(url) {
