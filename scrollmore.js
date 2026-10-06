@@ -4,6 +4,7 @@ class ScrollAndClick {
   selectors = [
     "a",
     "button",
+    "ds_button",
     "button.lc-load-more",
     "span[role=treeitem]",
     "button#load-more-posts",
@@ -19,12 +20,13 @@ class ScrollAndClick {
     "hent flere",
     "vis flere",
     "tillad alle",
-    "Indlæs mere",
-    "Tidligere opslag",
-    "Indlæs flere",
-    "Indlæs flere artikler",
-    "Hent flere resultater",
-    "Vis flere koncerter"
+    "indlæs mere",
+    "tidligere opslag",
+    "indlæs flere",
+    "indlæs flere artikler",
+    "hent flere resultater",
+    "vis flere koncerter",
+    "flere opslag"
   ].map(t => t.toLowerCase());
 
   static isMatch(url) {
